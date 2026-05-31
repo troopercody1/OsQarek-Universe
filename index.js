@@ -868,64 +868,6 @@ client.on('interactionCreate', async (interaction) => {
             }
             if (commandName === 'ping') return interaction.editReply(`🏓 Latency: **${client.ws.ping}ms**`);
             if (commandName === 'serverinfo') return interaction.editReply(`🏰 **${guild.name}** | Members: ${guild.memberCount} | Owner: <@${guild.ownerId}>`);
-            if (commandName === 'test' && isAtLeastAdmin) {
-    if (!interaction.deferred && !interaction.replied) {
-        await interaction.deferReply({ ephemeral: true });
-    }
-
-    try {
-        const deployPath = require.resolve('./deploy-commands.js');
-        delete require.cache[deployPath];
-        const { commands: localDefinitions } = require(deployPath);
-
-        // Fetch live commands safely
-        const discordCommands = await interaction.guild.commands.fetch();
-        const { EmbedBuilder } = require('discord.js');
-
-        let passed = 0, failed = 0;
-        let commandEntries = [];
-
-        localDefinitions.forEach(localCmd => {
-            const discordCmd = discordCommands.find(c => c.name === localCmd.name);
-            let status = discordCmd ? "✅" : "❌";
-            let detail = discordCmd ? "Synced" : "Missing on Discord";
-            
-            if (discordCmd) {
-                const localOpt = localCmd.options?.length || 0;
-                const liveOpt = discordCmd.options?.length || 0;
-                if (localOpt !== liveOpt) {
-                    status = "⚠️";
-                    detail = `Option Mismatch (${localOpt} vs ${liveOpt})`;
-                    failed++;
-                } else {
-                    passed++;
-                }
-            } else {
-                failed++;
-            }
-            commandEntries.push(`${status} **/${localCmd.name}** \`[${detail}]\``);
-        });
-
-        const embed = new EmbedBuilder()
-            .setTitle("🌌 Universe Diagnostic: Command Audit")
-            .setColor(failed > 0 ? 0xff4500 : 0x00ffff)
-            .setDescription(`Audit of **${localDefinitions.length}** commands complete.\n\n✅ ${passed} Synced | ❌ ${failed} Issues`)
-            .setTimestamp()
-            .setFooter({ text: 'OsQarek\'s Universe Utilities', iconURL: interaction.guild.iconURL() });
-
-        const chunkSize = 12;
-        for (let i = 0; i < commandEntries.length; i += chunkSize) {
-            embed.addFields({ name: `Batch ${Math.floor(i / chunkSize) + 1}`, value: commandEntries.slice(i, i + chunkSize).join('\n'), inline: true });
-        }
-
-        await interaction.editReply({ embeds: [embed] });
-
-    } catch (error) {
-        console.error("Diagnostic Error:", error);
-        // Fallback: If the audit fails, notify the user without crashing
-        await interaction.editReply({ content: `❌ **Diagnostic Failure:** \`${error.message}\`` });
-    }
-}
             if (commandName === 'restart' && isHeadAdmin) {
                 logAction(guild, '🚀 Restart', `By: ${user.tag}`, 0xFF0000);
                 await interaction.editReply("🚀 Restarting..."); process.exit(0);
