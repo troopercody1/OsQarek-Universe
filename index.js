@@ -85,8 +85,16 @@ app.get('/login', (req, res) => {
 });
 
 app.get('/auth/discord', (req, res) => {
-    const redirectUri = encodeURIComponent(process.env.DASHBOARD_CALLBACK_URL);
-    const discordAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${process.env.CLIENT_ID}&redirect_uri=${redirectUri}&response_type=code&scope=identify%20guilds.members.read`;
+    const callbackUrl = process.env.DASHBOARD_CALLBACK_URL;
+    
+    const params = new URLSearchParams({
+        client_id: process.env.CLIENT_ID,
+        redirect_uri: callbackUrl,
+        response_type: 'code',
+        scope: 'identify guilds.members.read'
+    });
+
+    const discordAuthUrl = `https://discord.com/api/oauth2/authorize?${params.toString()}`;
     res.redirect(discordAuthUrl);
 });
 
