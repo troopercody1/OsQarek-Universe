@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta charset="UTF-8">
     <title><%= stats.botName %> - Dashboard</title>
     <style>
@@ -29,6 +30,24 @@
         .tab-content { display: none; }
         .tab-content.active { display: block; }
         .terminal-box { background-color: #15161e; font-family: monospace; padding: 15px; border-radius: 8px; height: 300px; overflow-y: auto; border: 1px solid #1f2335; font-size: 0.8rem; }
+        @media (max-width: 768px) {
+        body { flex-direction: column; }
+    
+    /* Turn sidebar into a top menu */
+    .sidebar { width: 100%; height: auto; border-right: none; border-bottom: 1px solid #2f3549; padding: 10px; flex-direction: row; overflow-x: auto; }
+    .sidebar h2 { display: none; } /* Hide title to save space */
+    .tab-btn { margin-bottom: 0; padding: 10px; white-space: nowrap; }
+    
+    /* Make main content full width */
+    .main-content { padding: 20px; }
+    
+    /* Stack stats vertically on mobile */
+    .grid-stats { grid-template-columns: 1fr; }
+    
+    /* Make table scrollable horizontally */
+    .panel { overflow-x: auto; }
+    table { min-width: 500px; }
+}
     </style>
 </head>
 <body>
