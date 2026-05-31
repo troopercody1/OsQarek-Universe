@@ -6,7 +6,7 @@ const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 const commands = [
     { name: 'help', description: 'List all available moderator commands' },
     { name: 'ping', description: 'Check the bot\'s latency' },
-    { name: 'test', description: 'Test if all bot systems are operational' },
+   // { name: 'test', description: 'Test if all bot systems are operational' },
     //  { name: 'random', description: 'Ping a random person in the server' },
     { name: 'addmod', description: 'Add a role to the moderator list', options: [{ name: 'role', description: 'The role to add', type: 8, required: true }] },
     { name: 'deletemod', description: 'Remove a role from the moderator list', options: [{ name: 'role', description: 'The role to remove', type: 8, required: true }] },
