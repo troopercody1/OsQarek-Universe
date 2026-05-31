@@ -94,7 +94,7 @@
                     <tr>
                         <td style="color: #7dcfff;">#<%= index %></td>
                         <td><%= item.user || item.userId %></td>
-                        <td><strong><%= item.action || 'WARNING' %></strong></td>
+                        <td><strong><%= item.type || 'UNKNOWN' %></strong></td>
                         <td>
                             <form action="/edit-case/<%= index %>" method="POST" style="display:flex; gap:8px;">
                                 <input type="text" name="reason" value="<%= item.reason %>">
