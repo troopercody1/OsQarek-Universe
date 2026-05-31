@@ -61,13 +61,34 @@
         </div>
 
         <div id="infractions" class="tab-content">
-            <div class="panel">
-                <h2>⚖️ Infractions</h2>
-                <% if (cases.length === 0) { %><p>No records.</p><% } else { %>
-                <table>... (Your table code here) ...</table>
-                <% } %>
-            </div>
-        </div>
+    <div class="panel">
+        <h2>⚖️ Infraction Database Registry</h2>
+        <% if (cases.length === 0) { %> 
+            <p style="color: #565f89;">No records found.</p> 
+        <% } else { %>
+            <table>
+                <thead>
+                    <tr><th>ID</th><th>User</th><th>Type</th><th>Reason</th></tr>
+                </thead>
+                <tbody>
+                    <% cases.forEach((item, index) => { %>
+                    <tr>
+                        <td style="color: #7dcfff;">#<%= index %></td>
+                        <td><%= item.user || item.userId %></td>
+                        <td><strong><%= item.action || 'WARNING' %></strong></td>
+                        <td>
+                            <form action="/edit-case/<%= index %>" method="POST" style="display:flex; gap:8px;">
+                                <input type="text" name="reason" value="<%= item.reason %>">
+                                <button type="submit" class="btn-submit">Update</button>
+                            </form>
+                        </td>
+                    </tr>
+                    <% }) %>
+                </tbody>
+            </table>
+        <% } %>
+    </div>
+</div>
 
         <div id="terminal" class="tab-content">
             <div class="panel">
