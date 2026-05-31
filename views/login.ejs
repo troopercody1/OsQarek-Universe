@@ -1,31 +1,56 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard Access Verification</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background-color: #1a1b26; color: #a9b1d6; margin: 0; display: flex; height: 100vh; align-items: center; justify-content: center; }
-        .login-card { background-color: #24283b; border: 1px solid #2f3549; border-radius: 12px; padding: 40px; text-align: center; box-shadow: 0 8px 24px rgba(0,0,0,0.4); max-width: 400px; width: 100%; }
-        h1 { color: #7aa2f7; font-size: 1.6rem; margin-bottom: 10px; }
-        p { color: #565f89; font-size: 0.95rem; margin-bottom: 25px; }
-        .btn-discord { background-color: #5865F2; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-weight: bold; display: inline-block; transition: background 0.2s; border: none; font-size: 1rem; width: 85%; }
-        .btn-discord:hover { background-color: #4752C4; }
-        .error-banner { background-color: rgba(247, 118, 142, 0.15); border: 1px solid #f7768e; color: #f7768e; padding: 12px; border-radius: 6px; margin-bottom: 20px; font-size: 0.9rem; text-align: left; }
+        body { margin: 0; display: flex; font-family: 'Segoe UI', sans-serif; background-color: #16161e; color: #a9b1d6; }
+        
+        /* Sidebar */
+        .sidebar { width: 250px; background: #1a1b26; height: 100vh; border-right: 1px solid #2f3549; padding: 20px; }
+        .sidebar h2 { color: #7aa2f7; font-size: 1.2rem; }
+        .nav-btn { display: block; width: 100%; padding: 12px; margin: 5px 0; background: transparent; border: none; color: #a9b1d6; text-align: left; cursor: pointer; border-radius: 6px; font-weight: bold; }
+        .nav-btn:hover, .nav-btn.active { background: #24283b; color: #7dcfff; }
+
+        /* Main Content */
+        .main-content { flex: 1; padding: 40px; overflow-y: auto; }
+        .panel { background-color: #24283b; padding: 25px; border-radius: 8px; border: 1px solid #2f3549; margin-bottom: 20px; }
+        
+        /* Utility Styles */
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        h2 { color: #bb9af7; margin-top: 0; }
+        .btn-submit { background-color: #7aa2f7; color: #1a1b26; border: none; padding: 10px 18px; border-radius: 4px; cursor: pointer; font-weight: bold; }
     </style>
 </head>
 <body>
-    <div class="login-card">
-        <h1>🔒 Administrative Clearance</h1>
-        <p>Verification is required to modify system configuration registries.</p>
-        
-        <% if (error) { %>
-            <div class="error-banner">
-                <strong>Access Blocked:</strong> <%= error %>
-            </div>
-        <% } %>
-
-        <a href="/auth/discord" class="btn-discord">Log In with Discord</a>
+    <div class="sidebar">
+        <h2>🌌 Bot Utilities</h2>
+        <button class="nav-btn active" onclick="showTab('dashboard')">Dashboard</button>
+        <button class="nav-btn" onclick="showTab('infractions')">Infractions</button>
+        <button class="nav-btn" onclick="showTab('logs')">Logs</button>
     </div>
+
+    <div class="main-content">
+        <div id="dashboard" class="tab-content active">
+            <h2>Dashboard</h2>
+            <div class="panel">...</div>
+        </div>
+        <div id="infractions" class="tab-content">
+            <h2>Infractions</h2>
+            <div class="panel">...</div>
+        </div>
+        <div id="logs" class="tab-content">
+            <h2>System Logs</h2>
+            <div class="panel">...</div>
+        </div>
+    </div>
+
+    <script>
+        function showTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            event.currentTarget.classList.add('active');
+        }
+    </script>
 </body>
 </html>
