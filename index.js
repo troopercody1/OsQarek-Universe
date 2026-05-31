@@ -81,7 +81,11 @@ function checkAuth(req, res, next) {
 
 app.get('/login', (req, res) => {
     if (req.session && req.session.user && req.session.isHeadAdmin) return res.redirect('/');
-    res.render('login', { error: req.query.error || null });
+    
+    res.render('login', { 
+        error: req.query.error || null,
+        stats: { botName: client.user?.username || "OsQarek’s Universe" } 
+    });
 });
 
 app.get('/auth/discord', (req, res) => {
