@@ -21,12 +21,17 @@ process.on('unhandledRejection', (reason, promise) => console.error('Unhandled P
 
 // -- ADVANCED INTERACTIVE DASHBOARD WITH DISCORD OAUTH2 (RENDER PATCHED) --
 const session = require('express-session');
-// --- ALTERNATIVE: Brevo API Setup ---
+
+// --- FIX: Brevo API Setup ---
 const Brevo = require('@getbrevo/brevo');
 
-// Sometimes the library is nested under the export name
-const apiInstance = new Brevo.TransactionalEmailsApi(Brevo);
+// The SDK is often exported as an object where the class is a property
+// We check for the most likely path
+const TransactionalEmailsApi = Brevo.TransactionalEmailsApi || Brevo.default?.TransactionalEmailsApi;
 
+const apiInstance = new TransactionalEmailsApi();
+
+// Set the API Key
 apiInstance.setApiKey(Brevo.TransactionalEmailsApiApiKeys.apiKey, process.env.BREVO_API_KEY);
 
 global.otpStore = {};
