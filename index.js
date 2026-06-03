@@ -22,6 +22,15 @@ process.on('unhandledRejection', (reason, promise) => console.error('Unhandled P
 // -- ADVANCED INTERACTIVE DASHBOARD WITH DISCORD OAUTH2 (RENDER PATCHED) --
 const session = require('express-session');
 
+// --- NEW: Nodemailer Setup ---
+const nodemailer = require('nodemailer');
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user: 'osqarekuniverse@gmail.com', pass: process.env.EMAIL_PASS }
+});
+global.otpStore = {};
+// -----------------------------
+
 // CRASH PROTECTION
 process.on('uncaughtException', (err) => console.error('CRITICAL DASHBOARD ERROR:', err));
 process.on('unhandledRejection', (reason, promise) => console.error('Unhandled Promise Rejection:', reason));
@@ -75,12 +84,15 @@ function checkAuth(req, res, next) {
     res.redirect('/login');
 }
 
-// AUTH ROUTES
+// ==========================================
+// AUTH ROUTES (SPLIT LOGIN SYSTEM)
+// ==========================================
 app.get('/login', (req, res) => {
     if (req.session && req.session.user && req.session.isHeadAdmin) return res.redirect('/');
     res.render('login', { error: req.query.error || null, stats: { botName: client.user?.username || "OsQarek’s Universe" } });
 });
 
+// --- PATH 1: STANDARD DISCORD LOGIN ---
 app.get('/auth/discord', (req, res) => {
     const params = new URLSearchParams({ client_id: process.env.CLIENT_ID, redirect_uri: process.env.DASHBOARD_CALLBACK_URL, response_type: 'code', scope: 'identify guilds.members.read' });
     res.redirect(`https://discord.com/api/oauth2/authorize?${params.toString()}`);
@@ -99,13 +111,54 @@ app.get('/auth/callback', async (req, res) => {
         
         if (!guildMember.data.roles.some(r => ALLOWED_ROLES.includes(r))) return res.redirect('/login?error=Unauthorized');
         
+        // Grant standard access
         req.session.user = userResponse.data;
         req.session.isHeadAdmin = true;
         res.redirect('/');
     } catch (err) { res.redirect('/login?error=Authentication+failed'); }
 });
 
+// --- PATH 2: ADMINISTRATOR OTP LOGIN ---
+app.get('/auth/admin', (req, res) => {
+    // Renders the OTP page without needing Discord login
+    res.render('otp', { error: req.query.error || null, msg: req.query.msg || null });
+});
+
+app.post('/auth/send-otp', async (req, res) => {
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    global.otpStore['admin_login'] = { otp, expires: Date.now() + 300000 }; 
+
+    try {
+        await transporter.sendMail({
+            from: '"OsQarek Universe" <osqarekuniverse@gmail.com>',
+            to: process.env.ADMIN_EMAIL, // Add your receiving email to Render environment variables
+            subject: 'Dashboard Admin Security Code',
+            text: `Your Master Admin login code is: ${otp}. This code expires in 5 minutes.`
+        });
+        res.redirect('/auth/admin?msg=Code+Sent+To+Master+Email');
+    } catch (e) {
+        console.error("Email Error:", e);
+        res.redirect('/auth/admin?error=Failed+to+send+email');
+    }
+});
+
+app.post('/auth/verify-otp', (req, res) => {
+    const storedData = global.otpStore['admin_login'];
+    
+    if (storedData && storedData.otp === req.body.otp && Date.now() < storedData.expires) {
+        // Success! Grant master admin session
+        req.session.user = { id: 'admin', username: 'Master Admin', avatar: null };
+        req.session.isHeadAdmin = true;
+        
+        delete global.otpStore['admin_login']; // Clean up
+        res.redirect('/');
+    } else {
+        res.redirect('/auth/admin?error=Invalid+or+Expired+Code');
+    }
+});
+
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
+// ==========================================
 
 // MAIN DASHBOARD ROUTE
 app.get('/', checkAuth, async (req, res) => {
