@@ -61,6 +61,13 @@ app.use(express.urlencoded({ extended: true }));
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
+app.use((req, res, next) => {
+    if (db.settings?.maintenanceMode && req.session?.user?.id !== 'admin') {
+        return res.render('maintenance'); // Make sure you have maintenance.ejs in /views
+    }
+    next();
+});
+
 global.botErrors = global.botErrors || [];
 global.botLogs = global.botLogs || [];
 
@@ -253,6 +260,14 @@ app.post('/banned-words/add', checkAuth, (req, res) => {
     res.redirect('/');
 });
 
+app.post('/settings/toggle-maintenance', (req, res) => {
+    if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
+
+    if (!db.settings) db.settings = { prefix: "!", welcomeChannel: "...", goodbyeChannel: "...", maintenanceMode: false };
+    db.settings.maintenanceMode = !db.settings.maintenanceMode;
+    safeSave();
+    res.redirect('/settings');
+});
 
 app.listen(PORT, '0.0.0.0', () => console.log(`🌐 Engine Online on Port ${PORT}`));
 
