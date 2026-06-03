@@ -110,41 +110,44 @@
     <div class="panel">
         <h2>🛡️ Member Risk Assessment</h2>
         <table>
-            <thead>
+    <thead>
+        <tr>
+            <th>Member Tag</th>
+            <th>Risk Score</th>
+            <th>Reason</th>
+            <th>Action</th>
+        </tr>
+    </thead>
+    <tbody>
+        <% if (members && members.length > 0) { %>
+            <% members.forEach(member => { %>
+                <% const isNew = member.joinedTimestamp > (Date.now() - 604800000); %>
                 <tr>
-                    <th>Member Tag</th>
-                    <th>Risk Score</th>
-                    <th>Action</th>
+                    <td><%= member.user.tag %></td>
+                    <td>
+                        <% if (isNew) { %>
+                            <span style="color: #f7768e;">85/100 (High)</span>
+                        <% } else { %>
+                            <span style="color: #9ece6a;">10/100 (Low)</span>
+                        <% } %>
+                    </td>
+                    <td>
+                        <%= isNew ? "Joined within the last 7 days." : "Account established." %>
+                    </td>
+                    <td>
+                        <form action="/review-risk/<%= member.id %>" method="POST">
+                            <button type="submit" class="btn-submit">Review</button>
+                        </form>
+                    </td>
                 </tr>
-            </thead>
-            <tbody>
-                <% if (members && members.length > 0) { %>
-                    <% members.forEach(member => { %>
-                    <tr>
-                        <td><%= member.user.tag %></td>
-                        <td>
-                            <% if (member.joinedTimestamp > (Date.now() - 604800000)) { %>
-                                <span style="color: #f7768e;">85/100 (High - New)</span>
-                            <% } else { %>
-                                <span style="color: #9ece6a;">10/100 (Low)</span>
-                            <% } %>
-                        </td>
-                        <td>
-                            <form action="/review-risk/<%= member.id %>" method="POST">
-                                <button type="submit" class="btn-submit">Review</button>
-                            </form>
-                        </td>
-                    </tr>
-                    <% }) %>
-                <% } else { %>
-                    <tr>
-                        <td colspan="3">No members found or intent not enabled.</td>
-                    </tr>
-                <% } %>
-            </tbody>
-        </table>
-    </div>
-</div>
+            <% }) %>
+        <% } else { %>
+            <tr>
+                <td colspan="4">No members found or intent not enabled.</td>
+            </tr>
+        <% } %>
+    </tbody>
+</table>
 
         <div id="roles" class="tab-content">
             <div class="panel">
