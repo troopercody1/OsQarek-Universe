@@ -130,14 +130,15 @@ app.post('/auth/send-otp', async (req, res) => {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     global.otpStore['admin_login'] = { otp, expires: Date.now() + 300000 };
 
-    let sendSmtpEmail = new Brevo.SendSmtpEmail();
-    sendSmtpEmail.subject = "Dashboard Security Code";
-    sendSmtpEmail.htmlContent = `<p>Your Master Admin login code is: <strong>${otp}</strong>. This code expires in 5 minutes.</p>`;
-    sendSmtpEmail.sender = { "name": "OsQarek Universe", "email": "osqarekuniverse@gmail.com" };
-    sendSmtpEmail.to = [{ "email": process.env.ADMIN_EMAIL }];
-
     try {
-        await apiInstance.sendTransacEmail(sendSmtpEmail);
+        // Use the new client structure
+        await brevo.transactionalEmails.sendTransacEmail({
+            subject: "Dashboard Security Code",
+            htmlContent: `<p>Your Master Admin login code is: <strong>${otp}</strong>. This code expires in 5 minutes.</p>`,
+            sender: { name: "OsQarek Universe", email: "osqarekuniverse@gmail.com" },
+            to: [{ email: process.env.ADMIN_EMAIL }]
+        });
+        
         res.redirect('/auth/admin?msg=Code+Sent+To+Master+Email');
     } catch (e) {
         console.error("Brevo API Error:", e.body || e);
