@@ -22,17 +22,13 @@ process.on('unhandledRejection', (reason, promise) => console.error('Unhandled P
 // -- ADVANCED INTERACTIVE DASHBOARD WITH DISCORD OAUTH2 (RENDER PATCHED) --
 const session = require('express-session');
 
-// --- FIX: Brevo API Setup ---
-const Brevo = require('@getbrevo/brevo');
+// --- FIX: Brevo API Setup (v5.0.4) ---
+const { BrevoClient } = require('@getbrevo/brevo');
 
-// The SDK is often exported as an object where the class is a property
-// We check for the most likely path
-const TransactionalEmailsApi = Brevo.TransactionalEmailsApi || Brevo.default?.TransactionalEmailsApi;
-
-const apiInstance = new TransactionalEmailsApi();
-
-// Set the API Key
-apiInstance.setApiKey(Brevo.TransactionalEmailsApiApiKeys.apiKey, process.env.BREVO_API_KEY);
+// Initialize the modern client
+const brevo = new BrevoClient({
+    apiKey: process.env.BREVO_API_KEY
+});
 
 global.otpStore = {};
 // -----------------------------
