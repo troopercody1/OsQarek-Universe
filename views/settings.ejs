@@ -16,10 +16,10 @@
 <body>
     <div class="settings-card">
         <a href="/">← Back to Dashboard</a>
-        <h1>Master Admin Settings</h1>
+        <h1>Website Settings</h1>
         
         <h3>Maintenance Mode</h3>
-        <p>Status: <strong><%= settings.maintenanceMode ? 'ENABLED (Website Locked)' : 'DISABLED (Website Open)' %></strong></p>
+        <p>Status: <strong><%= settings.maintenanceMode ? 'Locked' : 'Unlocked' %></strong></p>
         <form action="/settings/toggle-maintenance" method="POST">
             <button type="submit"><%= settings.maintenanceMode ? 'Disable Maintenance' : 'Enable Maintenance' %></button>
         </form>
