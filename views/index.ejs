@@ -158,11 +158,15 @@
             
             <select name="emoji" style="width: 150px; background: #16161e; color: #fff; padding: 10px; border-radius: 4px; border: 1px solid #2f3549;">
                 <option value="">Select Emoji</option>
-                <% emojis.forEach(emoji => { %>
-                    <option value="<%= emoji.toString %>">
-                        <%= emoji.toString %> :<%= emoji.name %>:
-                    </option>
-                <% }) %>
+                <% if (typeof emojis !== 'undefined' && emojis && emojis.length > 0) { %>
+                    <% emojis.forEach(emoji => { %>
+                        <option value="<%= emoji.toString %>">
+                            <%= emoji.toString %> :<%= emoji.name %>:
+                        </option>
+                    <% }) %>
+                <% } else { %>
+                    <option value="" disabled>No custom emojis available</option>
+                <% } %>
             </select>
 
             <input name="roleId" placeholder="Role ID" style="flex: 2;">
