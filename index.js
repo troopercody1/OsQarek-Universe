@@ -110,10 +110,22 @@ app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login')
 // MAIN DASHBOARD ROUTE
 app.get('/', checkAuth, async (req, res) => {
     const guild = client.guilds.cache.get(process.env.GUILD_ID);
-    const members = guild ? await guild.members.fetch().catch(() => guild.members.cache) : [];
+    
+    // Fix: Force the collection into an array using Array.from()
+    let members = [];
+    if (guild) {
+        const fetched = await guild.members.fetch().catch(() => guild.members.cache);
+        members = Array.from(fetched.values()); 
+    }
 
     res.render('index', { 
-        stats: { botName: client.user?.username, botStatus: client.readyAt ? "ONLINE" : "OFFLINE", guildsCount: client.guilds.cache.size, totalUsers: client.users.cache.size, ping: `${Math.round(client.ws.ping)}ms` },
+        stats: { 
+            botName: client.user?.username, 
+            botStatus: client.readyAt ? "ONLINE" : "OFFLINE", 
+            guildsCount: client.guilds.cache.size, 
+            totalUsers: client.users.cache.size, 
+            ping: `${Math.round(client.ws.ping)}ms` 
+        },
         members: members,
         cases: db.cases || [],
         settings: db.settings || { prefix: "!", welcomeChannel: "...", goodbyeChannel: "..." },
