@@ -24,9 +24,13 @@ const session = require('express-session');
 
 // --- NEW: Brevo API Setup ---
 const Brevo = require('@getbrevo/brevo');
-let apiInstance = new Brevo.TransactionalEmailsApi();
-let apiKey = apiInstance.authentications['apiKey'];
-apiKey.apiKey = process.env.BREVO_API_KEY; // Change this in Render Env Vars
+
+// Access the class from the Brevo object
+const apiInstance = new Brevo.TransactionalEmailsApi();
+
+// Set the API Key correctly using the provided configuration method
+apiInstance.setApiKey(Brevo.TransactionalEmailsApiApiKeys.apiKey, process.env.BREVO_API_KEY);
+
 global.otpStore = {};
 // -----------------------------
 
@@ -134,7 +138,7 @@ app.post('/auth/send-otp', async (req, res) => {
     sendSmtpEmail.to = [{ "email": process.env.ADMIN_EMAIL }];
 
     try {
-        await apiInstance.sendTransactEmail(sendSmtpEmail);
+        await apiInstance.sendTransacEmail(sendSmtpEmail);
         res.redirect('/auth/admin?msg=Code+Sent+To+Master+Email');
     } catch (e) {
         console.error("Brevo API Error:", e.body || e);
