@@ -22,12 +22,11 @@ process.on('unhandledRejection', (reason, promise) => console.error('Unhandled P
 // -- ADVANCED INTERACTIVE DASHBOARD WITH DISCORD OAUTH2 (RENDER PATCHED) --
 const session = require('express-session');
 
-// --- NEW: Nodemailer Setup ---
-const nodemailer = require('nodemailer');
-const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: 'osqarekuniverse@gmail.com', pass: process.env.EMAIL_PASS }
-});
+// --- NEW: Brevo API Setup ---
+const Brevo = require('@getbrevo/brevo');
+let apiInstance = new Brevo.TransactionalEmailsApi();
+let apiKey = apiInstance.authentications['apiKey'];
+apiKey.apiKey = process.env.BREVO_API_KEY; // Change this in Render Env Vars
 global.otpStore = {};
 // -----------------------------
 
@@ -126,18 +125,19 @@ app.get('/auth/admin', (req, res) => {
 
 app.post('/auth/send-otp', async (req, res) => {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    global.otpStore['admin_login'] = { otp, expires: Date.now() + 300000 }; 
+    global.otpStore['admin_login'] = { otp, expires: Date.now() + 300000 };
+
+    let sendSmtpEmail = new Brevo.SendSmtpEmail();
+    sendSmtpEmail.subject = "Dashboard Security Code";
+    sendSmtpEmail.htmlContent = `<p>Your Master Admin login code is: <strong>${otp}</strong>. This code expires in 5 minutes.</p>`;
+    sendSmtpEmail.sender = { "name": "OsQarek Universe", "email": "osqarekuniverse@gmail.com" };
+    sendSmtpEmail.to = [{ "email": process.env.ADMIN_EMAIL }];
 
     try {
-        await transporter.sendMail({
-            from: '"OsQarek Universe" <osqarekuniverse@gmail.com>',
-            to: process.env.ADMIN_EMAIL, // Add your receiving email to Render environment variables
-            subject: 'Dashboard Admin Security Code',
-            text: `Your Master Admin login code is: ${otp}. This code expires in 5 minutes.`
-        });
+        await apiInstance.sendTransactEmail(sendSmtpEmail);
         res.redirect('/auth/admin?msg=Code+Sent+To+Master+Email');
     } catch (e) {
-        console.error("Email Error:", e);
+        console.error("Brevo API Error:", e.body || e);
         res.redirect('/auth/admin?error=Failed+to+send+email');
     }
 });
