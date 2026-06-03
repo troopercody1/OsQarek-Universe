@@ -163,6 +163,20 @@ app.post('/auth/verify-otp', (req, res) => {
     }
 });
 
+app.get('/settings', (req, res) => {
+    // Only allow access if the session is the OTP admin session
+    if (req.session.user && req.session.user.id === 'admin') {
+        res.render('settings', {
+            user: req.session.user,
+            settings: db.settings || { prefix: "!", welcomeChannel: "...", goodbyeChannel: "...", maintenanceMode: false },
+            bannedWords: db.bannedWords || []
+        });
+    } else {
+        // Deny access if they aren't the OTP admin
+        res.status(403).send("<h1>403 Forbidden</h1><p>Access denied.</p>");
+    }
+});
+
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
 // ==========================================
 
@@ -238,6 +252,7 @@ app.post('/banned-words/add', checkAuth, (req, res) => {
     if (!db.bannedWords.includes(req.body.word)) { db.bannedWords.push(req.body.word); safeSave(); }
     res.redirect('/');
 });
+
 
 app.listen(PORT, '0.0.0.0', () => console.log(`🌐 Engine Online on Port ${PORT}`));
 
