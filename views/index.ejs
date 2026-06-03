@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta charset="UTF-8">
     <title><%= stats.botName %> - Dashboard</title>
     <style>
@@ -29,25 +29,22 @@
         
         .tab-content { display: none; }
         .tab-content.active { display: block; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th { text-align: left; color: #565f89; font-size: 0.8rem; padding: 10px; }
+        td { padding: 10px; border-bottom: 1px solid #2f3549; }
+
         .terminal-box { background-color: #15161e; font-family: monospace; padding: 15px; border-radius: 8px; height: 300px; overflow-y: auto; border: 1px solid #1f2335; font-size: 0.8rem; }
+        
         @media (max-width: 768px) {
-        body { flex-direction: column; }
-    
-    /* Turn sidebar into a top menu */
-    .sidebar { width: 100%; height: auto; border-right: none; border-bottom: 1px solid #2f3549; padding: 10px; flex-direction: row; overflow-x: auto; }
-    .sidebar h2 { display: none; } /* Hide title to save space */
-    .tab-btn { margin-bottom: 0; padding: 10px; white-space: nowrap; }
-    
-    /* Make main content full width */
-    .main-content { padding: 20px; }
-    
-    /* Stack stats vertically on mobile */
-    .grid-stats { grid-template-columns: 1fr; }
-    
-    /* Make table scrollable horizontally */
-    .panel { overflow-x: auto; }
-    table { min-width: 500px; }
-}
+            body { flex-direction: column; }
+            .sidebar { width: 100%; height: auto; border-right: none; border-bottom: 1px solid #2f3549; padding: 10px; flex-direction: row; overflow-x: auto; }
+            .sidebar h2 { display: none; }
+            .tab-btn { margin-bottom: 0; padding: 10px; white-space: nowrap; }
+            .main-content { padding: 20px; }
+            .grid-stats { grid-template-columns: 1fr; }
+            .panel { overflow-x: auto; }
+        }
     </style>
 </head>
 <body>
@@ -55,6 +52,8 @@
         <h2> OsQarek's Universe Utilities </h2>
         <button class="tab-btn active" onclick="openTab(event, 'dashboard')">⚙️ Configuration</button>
         <button class="tab-btn" onclick="openTab(event, 'infractions')">⚖️ Infractions</button>
+        <button class="tab-btn" onclick="openTab(event, 'risk-manager')">🛡️ Risk Manager</button>
+        <button class="tab-btn" onclick="openTab(event, 'roles')">🎭 Reaction Roles</button>
         <button class="tab-btn" onclick="openTab(event, 'terminal')">🖥️ System Logs</button>
         <div style="margin-top: auto;">
             <a href="/logout" style="color: #f7768e; text-decoration: none; font-weight: bold;">Logout</a>
@@ -80,34 +79,56 @@
         </div>
 
         <div id="infractions" class="tab-content">
-    <div class="panel">
-        <h2>⚖️ Infraction Database Registry</h2>
-        <% if (cases.length === 0) { %> 
-            <p style="color: #565f89;">No records found.</p> 
-        <% } else { %>
-            <table>
-                <thead>
-                    <tr><th>ID</th><th>User</th><th>Type</th><th>Reason</th></tr>
-                </thead>
-                <tbody>
-                    <% cases.forEach((item, index) => { %>
-                    <tr>
-                        <td style="color: #7dcfff;">#<%= index %></td>
-                        <td><%= item.user || item.userId %></td>
-                        <td><strong><%= item.type || 'UNKNOWN' %></strong></td>
-                        <td>
-                            <form action="/edit-case/<%= index %>" method="POST" style="display:flex; gap:8px;">
-                                <input type="text" name="reason" value="<%= item.reason %>">
-                                <button type="submit" class="btn-submit">Update</button>
-                            </form>
-                        </td>
-                    </tr>
-                    <% }) %>
-                </tbody>
-            </table>
-        <% } %>
-    </div>
-</div>
+            <div class="panel">
+                <h2>⚖️ Infraction Database Registry</h2>
+                <% if (cases.length === 0) { %> 
+                    <p style="color: #565f89;">No records found.</p> 
+                <% } else { %>
+                    <table>
+                        <thead><tr><th>ID</th><th>User</th><th>Type</th><th>Reason</th></tr></thead>
+                        <tbody>
+                            <% cases.forEach((item, index) => { %>
+                            <tr>
+                                <td style="color: #7dcfff;">#<%= index %></td>
+                                <td><%= item.user || item.userId %></td>
+                                <td><strong><%= item.type || 'UNKNOWN' %></strong></td>
+                                <td>
+                                    <form action="/edit-case/<%= index %>" method="POST" style="display:flex; gap:8px;">
+                                        <input type="text" name="reason" value="<%= item.reason %>">
+                                        <button type="submit" class="btn-submit" style="margin-top:0;">Update</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            <% }) %>
+                        </tbody>
+                    </table>
+                <% } %>
+            </div>
+        </div>
+
+        <div id="risk-manager" class="tab-content">
+            <div class="panel">
+                <h2>🛡️ Member Risk Assessment</h2>
+                <table>
+                    <thead><tr><th>User ID</th><th>Risk Score</th><th>Action</th></tr></thead>
+                    <tbody>
+                        <tr><td>123456789012345678</td><td><span style="color: #f7768e;">85/100 (High)</span></td><td><button class="btn-submit" style="margin:0; padding:5px 10px;">Review</button></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="roles" class="tab-content">
+            <div class="panel">
+                <h2>🎭 Reaction Role Configuration</h2>
+                <form action="/add-reaction-role" method="POST" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <input name="emoji" placeholder="Emoji (e.g. 🎮)" style="width: 150px;">
+                    <input name="roleId" placeholder="Role ID" style="flex: 2;">
+                    <input name="messageId" placeholder="Message ID" style="flex: 2;">
+                    <button type="submit" class="btn-submit" style="margin-top:0;">Add Rule</button>
+                </form>
+            </div>
+        </div>
 
         <div id="terminal" class="tab-content">
             <div class="panel">
