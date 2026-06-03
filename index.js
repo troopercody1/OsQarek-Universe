@@ -111,32 +111,39 @@ app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login')
 app.get('/', checkAuth, async (req, res) => {
     const guild = client.guilds.cache.get(process.env.GUILD_ID);
     
-    // Fix: Force the collection into an array using Array.from()
     let members = [];
+    let emojis = []; 
+    
     if (guild) {
         const fetched = await guild.members.fetch().catch(() => guild.members.cache);
-        members = Array.from(fetched.values()); 
+        members = Array.from(fetched.values()).filter(m => !(db.reviewedUsers || []).includes(m.id));
+        
+        emojis = guild.emojis.cache.map(e => ({ 
+            id: e.id, 
+            name: e.name, 
+            toString: e.toString() 
+        }));
     }
 
     res.render('index', { 
         stats: { 
-            botName: client.user?.username, 
+            botName: client.user?.username || "Dashboard", 
             botStatus: client.readyAt ? "ONLINE" : "OFFLINE", 
             guildsCount: client.guilds.cache.size, 
             totalUsers: client.users.cache.size, 
-            ping: `${Math.round(client.ws.ping)}ms` 
+            ping: `${Math.round(client.ws.ping || 0)}ms` 
         },
-        members: members,
+        members,
+        emojis, // 3. Pass it to the view
         cases: db.cases || [],
         settings: db.settings || { prefix: "!", welcomeChannel: "...", goodbyeChannel: "..." },
         reactionRoles: db.reactionRoles || [],
         bannedWords: db.bannedWords || [],
         user: req.session.user,
-        logs: global.botLogs,
-        errors: global.botErrors
+        logs: global.botLogs || [],
+        errors: global.botErrors || []
     });
 });
-
 // SETTINGS & FEATURES ROUTES
 app.post('/update-settings', checkAuth, (req, res) => {
     db.settings = { prefix: req.body.prefix, welcomeChannel: req.body.welcomeChannel, goodbyeChannel: req.body.goodbyeChannel };
