@@ -144,6 +144,22 @@ app.post('/update-settings', checkAuth, (req, res) => {
     res.redirect('/');
 });
 
+app.post('/review-risk/:userId', checkAuth, (req, res) => {
+    const userId = req.params.userId;
+    
+    // Ensure we have a place to store reviewed users
+    if (!db.reviewedUsers) db.reviewedUsers = [];
+    
+    // Add user if they aren't already in the list
+    if (!db.reviewedUsers.includes(userId)) {
+        db.reviewedUsers.push(userId);
+        safeSave(); // Saves to your database file
+    }
+    
+    console.log(`[RISK-MANAGER] Admin reviewed user: ${userId}`);
+    res.redirect('/');
+});
+
 app.post('/add-reaction-role', checkAuth, (req, res) => {
     if (!db.reactionRoles) db.reactionRoles = [];
     db.reactionRoles.push({ emoji: req.body.emoji, roleId: req.body.roleId, messageId: req.body.messageId });
