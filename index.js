@@ -155,7 +155,9 @@ app.post('/auth/verify-otp', (req, res) => {
         req.session.isHeadAdmin = true;
         
         delete global.otpStore['admin_login']; // Clean up
-        res.redirect('/');
+        
+        // Redirect to the settings page instead of the home page
+        res.redirect('/settings'); 
     } else {
         res.redirect('/auth/admin?error=Invalid+or+Expired+Code');
     }
