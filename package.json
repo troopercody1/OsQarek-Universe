@@ -19,6 +19,7 @@
     "install": "^0.13.0",
     "libsodium-wrappers": "^0.8.2",
     "localtunnel": "^2.0.2",
+    "nodemailer": "^8.0.10",
     "opusscript": "^0.1.1",
     "play-dl": "^1.9.7",
     "sharp": "^0.34.5",
