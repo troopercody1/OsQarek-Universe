@@ -21,7 +21,6 @@ process.on('unhandledRejection', (reason, promise) => console.error('Unhandled P
 
 // -- ADVANCED INTERACTIVE DASHBOARD WITH DISCORD OAUTH2 (RENDER PATCHED) --
 const session = require('express-session');
-const path = require('path');
 
 // CRASH PROTECTION
 process.on('uncaughtException', (err) => console.error('CRITICAL DASHBOARD ERROR:', err));
