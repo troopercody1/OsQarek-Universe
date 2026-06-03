@@ -21,15 +21,15 @@ process.on('unhandledRejection', (reason, promise) => console.error('Unhandled P
 
 // -- ADVANCED INTERACTIVE DASHBOARD WITH DISCORD OAUTH2 (RENDER PATCHED) --
 const session = require('express-session');
+const axios = require('axios'); // Ensure you have this
+const path = require('path');
 
-// CRASH PROTECTION: Prevents the web server from dying on unhandled errors
+// CRASH PROTECTION
 process.on('uncaughtException', (err) => console.error('CRITICAL DASHBOARD ERROR:', err));
 process.on('unhandledRejection', (reason, promise) => console.error('Unhandled Promise Rejection:', reason));
 
-// DYNAMIC PORT: Render provides this via environment variable
 const PORT = process.env.PORT || 3000;
 
-// HELPER: Safely save database without crashing the web process
 function safeSave() {
     try {
         if (typeof db.sync === 'function') db.sync();
@@ -52,11 +52,9 @@ app.use(express.urlencoded({ extended: true }));
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-// Internal memory arrays
 global.botErrors = global.botErrors || [];
 global.botLogs = global.botLogs || [];
 
-// Hook console
 const originalLog = console.log;
 const originalError = console.error;
 
@@ -79,27 +77,15 @@ function checkAuth(req, res, next) {
     res.redirect('/login');
 }
 
+// AUTH ROUTES
 app.get('/login', (req, res) => {
     if (req.session && req.session.user && req.session.isHeadAdmin) return res.redirect('/');
-    
-    res.render('login', { 
-        error: req.query.error || null,
-        stats: { botName: client.user?.username || "OsQarek’s Universe" } 
-    });
+    res.render('login', { error: req.query.error || null, stats: { botName: client.user?.username || "OsQarek’s Universe" } });
 });
 
 app.get('/auth/discord', (req, res) => {
-    const callbackUrl = process.env.DASHBOARD_CALLBACK_URL;
-    
-    const params = new URLSearchParams({
-        client_id: process.env.CLIENT_ID,
-        redirect_uri: callbackUrl,
-        response_type: 'code',
-        scope: 'identify guilds.members.read'
-    });
-
-    const discordAuthUrl = `https://discord.com/api/oauth2/authorize?${params.toString()}`;
-    res.redirect(discordAuthUrl);
+    const params = new URLSearchParams({ client_id: process.env.CLIENT_ID, redirect_uri: process.env.DASHBOARD_CALLBACK_URL, response_type: 'code', scope: 'identify guilds.members.read' });
+    res.redirect(`https://discord.com/api/oauth2/authorize?${params.toString()}`);
 });
 
 app.get('/auth/callback', async (req, res) => {
@@ -107,43 +93,30 @@ app.get('/auth/callback', async (req, res) => {
     if (!code) return res.redirect('/login?error=Missing+auth+code');
     try {
         const tokenResponse = await axios.post('https://discord.com/api/oauth2/token', new URLSearchParams({
-            client_id: process.env.CLIENT_ID,
-            client_secret: process.env.DISCORD_CLIENT_SECRET,
-            grant_type: 'authorization_code',
-            code: code,
-            redirect_uri: process.env.DASHBOARD_CALLBACK_URL,
+            client_id: process.env.CLIENT_ID, client_secret: process.env.DISCORD_CLIENT_SECRET, grant_type: 'authorization_code', code: code, redirect_uri: process.env.DASHBOARD_CALLBACK_URL,
         }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
-
-        const accessToken = tokenResponse.data.access_token;
-        const userResponse = await axios.get('https://discord.com/api/users/@me', { headers: { Authorization: `Bearer ${accessToken}` } });
         
-        const userId = userResponse.data.id;
-        let userRoles = [];
-        try {
-            const guildMemberResponse = await axios.get(`https://discord.com/api/users/@me/guilds/${process.env.GUILD_ID}/member`, { headers: { Authorization: `Bearer ${accessToken}` } });
-            userRoles = guildMemberResponse.data.roles || [];
-        } catch (guildErr) {
-            const targetGuild = client.guilds.cache.get(process.env.GUILD_ID) || await client.guilds.fetch(process.env.GUILD_ID);
-            const targetMember = await targetGuild.members.fetch(userId);
-            userRoles = targetMember.roles.cache.map(role => role.id);
-        }
-
-        if (!userRoles.some(roleId => ALLOWED_ROLES.includes(roleId))) return res.redirect('/login?error=Unauthorized');
-
+        const userResponse = await axios.get('https://discord.com/api/users/@me', { headers: { Authorization: `Bearer ${tokenResponse.data.access_token}` } });
+        const guildMember = await axios.get(`https://discord.com/api/users/@me/guilds/${process.env.GUILD_ID}/member`, { headers: { Authorization: `Bearer ${tokenResponse.data.access_token}` } });
+        
+        if (!guildMember.data.roles.some(r => ALLOWED_ROLES.includes(r))) return res.redirect('/login?error=Unauthorized');
+        
         req.session.user = userResponse.data;
         req.session.isHeadAdmin = true;
         res.redirect('/');
-    } catch (err) {
-        console.error(`❌ Auth fault: ${err.message}`);
-        res.redirect('/login?error=Authentication+handshake+failed');
-    }
+    } catch (err) { res.redirect('/login?error=Authentication+failed'); }
 });
 
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
 
-app.get('/', checkAuth, (req, res) => {
+// MAIN DASHBOARD ROUTE
+app.get('/', checkAuth, async (req, res) => {
+    const guild = client.guilds.cache.get(process.env.GUILD_ID);
+    const members = guild ? await guild.members.fetch().catch(() => guild.members.cache) : [];
+
     res.render('index', { 
         stats: { botName: client.user?.username, botStatus: client.readyAt ? "ONLINE" : "OFFLINE", guildsCount: client.guilds.cache.size, totalUsers: client.users.cache.size, ping: `${Math.round(client.ws.ping)}ms` },
+        members: members,
         cases: db.cases || [],
         settings: db.settings || { prefix: "!", welcomeChannel: "...", goodbyeChannel: "..." },
         reactionRoles: db.reactionRoles || [],
@@ -154,34 +127,26 @@ app.get('/', checkAuth, (req, res) => {
     });
 });
 
+// SETTINGS & FEATURES ROUTES
 app.post('/update-settings', checkAuth, (req, res) => {
-    if (!db.settings) db.settings = {};
-    db.settings.prefix = req.body.prefix;
-    db.settings.welcomeChannel = req.body.welcomeChannel;
-    db.settings.goodbyeChannel = req.body.goodbyeChannel;
+    db.settings = { prefix: req.body.prefix, welcomeChannel: req.body.welcomeChannel, goodbyeChannel: req.body.goodbyeChannel };
+    safeSave();
+    res.redirect('/');
+});
+
+app.post('/add-reaction-role', checkAuth, (req, res) => {
+    if (!db.reactionRoles) db.reactionRoles = [];
+    db.reactionRoles.push({ emoji: req.body.emoji, roleId: req.body.roleId, messageId: req.body.messageId });
     safeSave();
     res.redirect('/');
 });
 
 app.post('/banned-words/add', checkAuth, (req, res) => {
     if (!db.bannedWords) db.bannedWords = [];
-    const word = req.body.word.trim().toLowerCase();
-    if (word && !db.bannedWords.includes(word)) {
-        db.bannedWords.push(word);
-        safeSave();
-    }
+    if (!db.bannedWords.includes(req.body.word)) { db.bannedWords.push(req.body.word); safeSave(); }
     res.redirect('/');
 });
 
-app.post('/banned-words/delete', checkAuth, (req, res) => {
-    if (db.bannedWords) {
-        db.bannedWords = db.bannedWords.filter(w => w !== req.body.word);
-        safeSave();
-    }
-    res.redirect('/');
-});
-
-// Start server on 0.0.0.0 for Render
 app.listen(PORT, '0.0.0.0', () => console.log(`🌐 Engine Online on Port ${PORT}`));
 
 // --- CONSOLIDATED VOICE & DISCORD IMPORTS ---
