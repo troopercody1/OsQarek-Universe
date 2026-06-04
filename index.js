@@ -538,8 +538,6 @@ function logAction(guild, title, description, color = 0x00FF00) {
 }
 
 // --- DATABASE BRIDGE (MongoDB to JSON Simulation) ---
-let db = {}; // Our in-memory state
-
 // Create a schema that holds your entire JSON object in one document
 const DataSchema = new mongoose.Schema({
     key: { type: String, default: 'botData' },
