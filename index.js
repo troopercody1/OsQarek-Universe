@@ -6,6 +6,7 @@ const path = require('path');
 const express = require('express');
 const dayjs = require('dayjs');
 const relativeTime = require('dayjs/plugin/relativeTime');
+const play = require('play-dl');
 const { Redis } = require('@upstash/redis');
 const { BrevoClient } = require('@getbrevo/brevo');
 const session = require('express-session');
