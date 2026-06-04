@@ -253,7 +253,7 @@ app.post('/review-risk/:userId', checkAuth, (req, res) => {
     console.log(`[RISK-MANAGER] Admin reviewed user: ${userId}`);
     
     // REDIRECT WITH HASH
-    res.redirect('/risk-manager');
+    res.redirect('/#risk-manager');
 });
 
 app.post('/add-reaction-role', checkAuth, (req, res) => {
