@@ -53,12 +53,13 @@ process.on('unhandledRejection', (reason, promise) => console.error('Unhandled P
 
 const PORT = process.env.PORT || 3000;
 
-function safeSave() {
+async function safeSave() {
     try {
-        fs.writeFileSync('./db.json', JSON.stringify(db, null, 2));
-        console.log("💾 Database synced to local file.");
+        // Since we patched db.save() to be an async method, we await it
+        await db.save();
+        console.log("💾 Database synced via db.save().");
     } catch (e) {
-        console.error("Local save failed:", e.message);
+        console.error("❌ Sync failed:", e.message);
     }
 }
 const ALLOWED_ROLES = ["850513944329191445", "1511810524818440243", "1256027411259326524", "850513087399329823", "801828933800296478", "772558550555295794"];
@@ -244,42 +245,43 @@ app.get('/', checkAuth, async (req, res) => {
     });
 });
 // SETTINGS & FEATURES ROUTES
-app.post('/update-settings', checkAuth, (req, res) => {
+app.post('/update-settings', checkAuth, async (req, res) => {
     db.settings = { prefix: req.body.prefix, welcomeChannel: req.body.welcomeChannel, goodbyeChannel: req.body.goodbyeChannel };
-    safeSave();
+    await safeSave();
     res.redirect('/');
 });
 
-app.post('/review-risk/:userId', checkAuth, (req, res) => {
+app.post('/review-risk/:userId', checkAuth, async (req, res) => {
     const userId = req.params.userId;
     
     if (!db.reviewedUsers) db.reviewedUsers = [];
     
     if (!db.reviewedUsers.includes(userId)) {
         db.reviewedUsers.push(userId);
-        safeSave(); 
+        await safeSave(); 
     }
     
     console.log(`[RISK-MANAGER] Admin reviewed user: ${userId}`);
-    
-    // REDIRECT WITH HASH
     res.redirect('/#risk-manager');
 });
 
-app.post('/add-reaction-role', checkAuth, (req, res) => {
+app.post('/add-reaction-role', checkAuth, async (req, res) => {
     if (!db.reactionRoles) db.reactionRoles = [];
     db.reactionRoles.push({ emoji: req.body.emoji, roleId: req.body.roleId, messageId: req.body.messageId });
-    safeSave();
+    await safeSave();
     res.redirect('/');
 });
 
-app.post('/banned-words/add', checkAuth, (req, res) => {
+app.post('/banned-words/add', checkAuth, async (req, res) => {
     if (!db.bannedWords) db.bannedWords = [];
-    if (!db.bannedWords.includes(req.body.word)) { db.bannedWords.push(req.body.word); safeSave(); }
+    if (!db.bannedWords.includes(req.body.word)) { 
+        db.bannedWords.push(req.body.word); 
+        await safeSave(); 
+    }
     res.redirect('/');
 });
 
-app.post('/settings/toggle-maintenance', (req, res) => {
+app.post('/settings/toggle-maintenance', async (req, res) => {
     if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
 
     // Initialize if undefined
@@ -293,8 +295,25 @@ app.post('/settings/toggle-maintenance', (req, res) => {
     // Update ETA only if provided, otherwise default to "TBD"
     db.settings.maintenanceETA = req.body.eta || "TBD";
     
-    safeSave();
+    await safeSave();
     res.redirect('/settings');
+});
+
+// --- LOAD DB FROM REDIS AT STARTUP ---
+client.once('ready', async () => {
+    if (typeof redis !== 'undefined') {
+        try {
+            const remoteData = await redis.get('bot_db');
+            if (remoteData) {
+                Object.assign(db, remoteData);
+                console.log("✅ Database synced from Upstash Redis.");
+            } else {
+                console.log("ℹ️ No remote database found, using defaults.");
+            }
+        } catch (err) {
+            console.error("❌ Failed to pull initial DB from Redis:", err.message);
+        }
+    }
 });
 
 app.listen(PORT, '0.0.0.0', () => console.log(`🌐 Engine Online on Port ${PORT}`));
