@@ -54,6 +54,14 @@ app.use(session({
 app.use(express.urlencoded({ extended: true }));
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
+app.use((req, res, next) => {
+    if (db.settings?.maintenanceMode && req.path !== '/login' && req.path !== '/auth/discord' && req.path !== '/auth/callback') {
+        return res.render('maintenance', { 
+            stats: { botName: client?.user?.username || "OsQarek's Universe" }
+        });
+    }
+    next();
+});
 
 // Logging Helpers
 const originalLog = console.log;
@@ -145,7 +153,18 @@ app.post('/update-settings', checkAuth, async (req, res) => { db.settings = { pr
 app.post('/review-risk/:userId', checkAuth, async (req, res) => { if (!db.reviewedUsers) db.reviewedUsers = []; if (!db.reviewedUsers.includes(req.params.userId)) { db.reviewedUsers.push(req.params.userId); await safeSave(); } res.redirect('/#risk-manager'); });
 app.post('/add-reaction-role', checkAuth, async (req, res) => { if (!db.reactionRoles) db.reactionRoles = []; db.reactionRoles.push({ emoji: req.body.emoji, roleId: req.body.roleId, messageId: req.body.messageId }); await safeSave(); res.redirect('/'); });
 app.post('/banned-words/add', checkAuth, async (req, res) => { if (!db.bannedWords) db.bannedWords = []; if (!db.bannedWords.includes(req.body.word)) { db.bannedWords.push(req.body.word); await safeSave(); } res.redirect('/'); });
-app.post('/settings/toggle-maintenance', async (req, res) => { if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden"); if (!db.settings) db.settings = { maintenanceMode: false }; db.settings.maintenanceMode = !db.settings.maintenanceMode; db.settings.maintenanceETA = req.body.eta || "TBD"; await safeSave(); res.redirect('/settings'); });
+app.post('/settings/toggle-maintenance', async (req, res) => {
+    if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
+    if (!db.settings) db.settings = { maintenanceMode: false };
+    
+    db.settings.maintenanceMode = !db.settings.maintenanceMode;
+    await db.save();
+    
+    res.redirect('/settings?msg=' + (db.settings.maintenanceMode ? 'Maintenance+ON' : 'Maintenance+OFF'));
+});
+
+
+
 
 // --- BOT STARTUP ---
 // This section will be registered after the Discord client is initialized.
