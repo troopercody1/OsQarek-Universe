@@ -41,13 +41,12 @@ const PORT = process.env.PORT || 3000;
 
 function safeSave() {
     try {
-        if (typeof db.sync === 'function') db.sync();
-        if (typeof saveDB === 'function') saveDB();
+        fs.writeFileSync('./db.json', JSON.stringify(db, null, 2));
+        console.log("💾 Database synced to local file.");
     } catch (e) {
-        console.error("Database save failed:", e.message);
+        console.error("Local save failed:", e.message);
     }
 }
-
 const ALLOWED_ROLES = ["850513944329191445", "1511810524818440243", "1256027411259326524", "850513087399329823", "801828933800296478", "772558550555295794"];
 
 app.use(session({
@@ -272,8 +271,17 @@ app.post('/banned-words/add', checkAuth, (req, res) => {
 app.post('/settings/toggle-maintenance', (req, res) => {
     if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
 
-    if (!db.settings) db.settings = { prefix: "!", welcomeChannel: "...", goodbyeChannel: "...", maintenanceMode: false };
+    // Initialize if undefined
+    if (!db.settings) {
+        db.settings = { prefix: "!", welcomeChannel: "...", goodbyeChannel: "...", maintenanceMode: false, maintenanceETA: "" };
+    }
+
+    // Toggle the mode
     db.settings.maintenanceMode = !db.settings.maintenanceMode;
+    
+    // Update ETA only if provided, otherwise default to "TBD"
+    db.settings.maintenanceETA = req.body.eta || "TBD";
+    
     safeSave();
     res.redirect('/settings');
 });
