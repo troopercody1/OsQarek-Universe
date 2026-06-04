@@ -118,7 +118,14 @@ function checkAuth(req, res, next) {
 // ==========================================
 app.get('/login', (req, res) => {
     if (req.session && req.session.user && req.session.isHeadAdmin) return res.redirect('/');
-    res.render('login', { error: req.query.error || null, stats: { botName: client.user?.username || "OsQarek’s Universe" } });
+    
+    // Check if client and client.user exist before accessing username
+    const botName = (typeof client !== 'undefined' && client.user) ? client.user.username : "OsQarek’s Universe";
+    
+    res.render('login', { 
+        error: req.query.error || null, 
+        stats: { botName: botName } 
+    });
 });
 
 // --- PATH 1: STANDARD DISCORD LOGIN ---
