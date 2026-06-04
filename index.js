@@ -55,9 +55,17 @@ app.use(express.urlencoded({ extended: true }));
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use((req, res, next) => {
+    const maintenanceWhitelist = [
+        '/auth/discord',
+        '/auth/callback',
+        '/auth/admin',
+        '/auth/send-otp',
+        '/auth/verify-otp',
+    ];
+
     if (
         db.settings?.maintenanceMode &&
-        !['/login', '/auth/discord', '/auth/callback', '/auth/admin'].includes(req.path)
+        !maintenanceWhitelist.includes(req.path)
     ) {
         return res.render('maintenance', { 
             stats: { botName: client?.user?.username || "OsQarek's Universe" }
