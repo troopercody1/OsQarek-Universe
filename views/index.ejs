@@ -106,49 +106,74 @@
             </div>
         </div>
 
-        <div id="risk-manager" class="tab-content">
+   <div id="risk-manager" class="tab-content">
     <div class="panel">
         <h2>🛡️ Member Risk Assessment</h2>
         <table>
-    <thead>
-        <tr>
-            <th>Member Tag</th>
-            <th>Risk Score</th>
-            <th>Reason</th>
-            <th>Action</th>
-        </tr>
-    </thead>
-    <tbody>
-        <% if (members && members.length > 0) { %>
-            <% members.forEach(member => { %>
-                <% const isNew = member.joinedTimestamp > (Date.now() - 604800000); %>
+            <thead>
                 <tr>
-                    <td><%= member.user.tag %></td>
-                    <td>
-                        <% if (isNew) { %>
-                            <span style="color: #f7768e;">85/100 (High)</span>
-                        <% } else { %>
-                            <span style="color: #9ece6a;">10/100 (Low)</span>
-                        <% } %>
-                    </td>
-                    <td>
-                        <%= isNew ? "Joined within the last 7 days." : "Account established." %>
-                    </td>
-                    <td>
-                        <form action="/review-risk/<%= member.id %>" method="POST">
-                            <button type="submit" class="btn-submit">Review</button>
-                        </form>
-                    </td>
+                    <th>Member Tag</th>
+                    <th>Risk Score</th>
+                    <th>Reason</th>
+                    <th>Action</th>
                 </tr>
-            <% }) %>
-        <% } else { %>
-            <tr>
-                <td colspan="4">No members found or intent not enabled.</td>
-            </tr>
-        <% } %>
-    </tbody>
-</table>
-</div>
+            </thead>
+            <tbody>
+                <% if (members && members.length > 0) { %>
+                    <% members.forEach(member => { %>
+                        <% 
+                            // --- RISK CALCULATION LOGIC ---
+                            let risk = 10;
+                            let reasons = [];
+                            
+                            // 1. Join Date Check (Within 7 days)
+                            if (member.joinedTimestamp > (Date.now() - 604800000)) { 
+                                risk += 40; 
+                                reasons.push("Joined < 7d"); 
+                            }
+                            
+                            // 2. Account Age Check (Discord ID Snowflake Calculation)
+                            const discordEpoch = 1420070400000;
+                            const userId = BigInt(member.id);
+                            const creationTimestamp = Number((userId >> 22n) + BigInt(discordEpoch));
+                            const accountAgeYears = (Date.now() - creationTimestamp) / (1000 * 60 * 60 * 24 * 365);
+                            
+                            if (accountAgeYears < 1) { 
+                                risk += 35; 
+                                reasons.push("Acct < 1yr"); 
+                            }
+                            
+                            // 3. Avatar Check
+                            if (!member.user.avatar) { 
+                                risk += 15; 
+                                reasons.push("No Avatar"); 
+                            }
+                        %>
+                        <tr>
+                            <td><%= member.user.tag %></td>
+                            <td>
+                                <span style="color: <%= risk >= 60 ? '#f7768e' : '#9ece6a' %>;">
+                                    <%= risk %>/100 (<%= risk >= 60 ? 'High' : 'Low' %>)
+                                </span>
+                            </td>
+                            <td>
+                                <%= reasons.length > 0 ? reasons.join(', ') : "Verified Account" %>
+                            </td>
+                            <td>
+                                <form action="/review-risk/<%= member.id %>" method="POST">
+                                    <button type="submit" class="btn-submit">Review</button>
+                                </form>
+                            </td>
+                        </tr>
+                    <% }) %>
+                <% } else { %>
+                    <tr>
+                        <td colspan="4">No members found or intent not enabled.</td>
+                    </tr>
+                <% } %>
+            </tbody>
+        </table>
+    </div>
 </div>
 
         <div id="roles" class="tab-content">
