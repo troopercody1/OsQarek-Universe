@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 
 require('dotenv').config();
 const fs = require('fs');
+import { dbUtils } from './databaseUtils.js';
 const path = require('path');
 const dayjs = require('dayjs');
 const relativeTime = require('dayjs/plugin/relativeTime');
@@ -47,7 +48,13 @@ const PORT = process.env.PORT || 3000;
 
 async function safeSave() {
     try {
-        await saveDB(); // Just call the MongoDB saver directly
+        // Update the MongoDB document with the new 'db' object
+        await DataModel.findOneAndUpdate(
+            { key: 'botData' }, 
+            { data: db }, 
+            { upsert: true }
+        );
+        console.log("💾 Database successfully synced to MongoDB.");
     } catch (e) {
         console.error("Database save failed:", e.message);
     }
@@ -203,40 +210,44 @@ app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login')
 
 // MAIN DASHBOARD ROUTE
 app.get('/', checkAuth, async (req, res) => {
-    const guild = client.guilds.cache.get(process.env.GUILD_ID);
-    
-    let members = [];
-    let emojis = []; 
-    
-    if (guild) {
-        const fetched = await guild.members.fetch().catch(() => guild.members.cache);
-        members = Array.from(fetched.values()).filter(m => !(db.reviewedUsers || []).includes(m.id));
+    try {
+        const guild = client.guilds.cache.get(process.env.GUILD_ID);
         
-        emojis = guild.emojis.cache.map(e => ({ 
-            id: e.id, 
-            name: e.name, 
-            toString: e.toString() 
-        }));
-    }
+        // Fetch MongoDB Data
+        const dataDoc = await DataModel.findOne({ key: 'botData' }); // Assuming you kept the 'Data' collection
+        const db = dataDoc ? dataDoc.data : { settings: {}, cases: [], reactionRoles: [], bannedWords: [], reviewedUsers: [] };
+        
+        let members = [];
+        let emojis = []; 
+        
+        if (guild) {
+            const fetched = await guild.members.fetch().catch(() => guild.members.cache);
+            members = Array.from(fetched.values()).filter(m => !(db.reviewedUsers || []).includes(m.id));
+            emojis = guild.emojis.cache.map(e => ({ id: e.id, name: e.name, toString: e.toString() }));
+        }
 
-    res.render('index', { 
-        stats: { 
-            botName: client.user?.username || "Dashboard", 
-            botStatus: client.readyAt ? "ONLINE" : "OFFLINE", 
-            guildsCount: client.guilds.cache.size, 
-            totalUsers: client.users.cache.size, 
-            ping: `${Math.round(client.ws.ping || 0)}ms` 
-        },
-        members,
-        emojis, // 3. Pass it to the view
-        cases: db.cases || [],
-        settings: db.settings || { prefix: "!", welcomeChannel: "...", goodbyeChannel: "..." },
-        reactionRoles: db.reactionRoles || [],
-        bannedWords: db.bannedWords || [],
-        user: req.session.user,
-        logs: global.botLogs || [],
-        errors: global.botErrors || []
-    });
+        res.render('index', { 
+            stats: { 
+                botName: client.user?.username || "Dashboard", 
+                botStatus: client.readyAt ? "ONLINE" : "OFFLINE", 
+                guildsCount: client.guilds.cache.size, 
+                totalUsers: client.users.cache.size, 
+                ping: `${Math.round(client.ws.ping || 0)}ms` 
+            },
+            members,
+            emojis,
+            cases: db.cases || [],
+            settings: db.settings || { prefix: "!", welcomeChannel: "...", goodbyeChannel: "..." },
+            reactionRoles: db.reactionRoles || [],
+            bannedWords: db.bannedWords || [],
+            user: req.session.user,
+            logs: await Case.find().sort({ _id: -1 }).limit(20),
+            errors: global.botErrors || []
+        });
+    } catch (err) {
+        console.error("Dashboard error:", err);
+        res.status(500).send("Error loading dashboard data.");
+    }
 });
 // SETTINGS & FEATURES ROUTES
 app.post('/update-settings', checkAuth, (req, res) => {
