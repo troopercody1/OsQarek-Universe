@@ -43,15 +43,21 @@ async function migrate() {
         }
         console.log("User migration complete.");
 
-        // 2. Migrate Cases
+       // 2. Migrate Cases
         if (data.cases && data.cases.length > 0) {
             console.log(`Migrating ${data.cases.length} cases...`);
-            for (const caseDoc of data.cases) {
-                await Case.updateOne(
-                    { id: caseDoc.id },
-                    { $set: caseDoc },
-                    { upsert: true }
-                );
+            for (let i = 0; i < data.cases.length; i++) {
+                try {
+                    await Case.updateOne(
+                        { id: data.cases[i].id },
+                        { $set: data.cases[i] },
+                        { upsert: true }
+                    );
+                } catch (caseErr) {
+                    // Log the EXACT case and the EXACT error
+                    console.error(`ERROR on case index ${i} (ID: ${data.cases[i].id}):`, caseErr);
+                    throw caseErr; // This will trigger the main catch block and exit
+                }
             }
         }
 
