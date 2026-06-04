@@ -55,13 +55,19 @@ app.use(express.urlencoded({ extended: true }));
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use((req, res, next) => {
+    // Whitelisted routes
     const maintenanceWhitelist = [
+        '/login',
         '/auth/discord',
         '/auth/callback',
         '/auth/admin',
         '/auth/send-otp',
         '/auth/verify-otp',
     ];
+
+    if (req.session?.user?.id === 'admin') {
+        maintenanceWhitelist.push('/settings');
+    }
 
     if (
         db.settings?.maintenanceMode &&
