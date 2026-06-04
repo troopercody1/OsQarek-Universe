@@ -14,11 +14,6 @@ const axios = require('axios');
 const app = express();
 app.set('trust proxy', 1);
 
-// INITIALIZE CLIENT HERE - IMPORTANT
-const client = new Client({ 
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] 
-});
-
 const brevo = new BrevoClient({ apiKey: process.env.BREVO_API_KEY });
 
 // Redis Init
