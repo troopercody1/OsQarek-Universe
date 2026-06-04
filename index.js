@@ -1,20 +1,13 @@
-process.env.TZ = 'Europe/London';
-const mongoose = require('mongoose');
+import 'dotenv/config';
+import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import mongoose from 'mongoose';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 
-require('dotenv').config();
-const fs = require('fs');
-import { dbUtils } from './databaseUtils.js';
-const path = require('path');
-const dayjs = require('dayjs');
-const relativeTime = require('dayjs/plugin/relativeTime');
-const express = require('express');
-const app = express(); 
-app.set('trust proxy', 1)
-const play = require('play-dl');
-const axios = require('axios');
-const { fetch } = require('undici');
-const { Readable } = require('stream');
-
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 let stayInVC = false;
 let badWordsFile = require('./badwords.js');
 
