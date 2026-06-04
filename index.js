@@ -55,7 +55,10 @@ app.use(express.urlencoded({ extended: true }));
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use((req, res, next) => {
-    if (db.settings?.maintenanceMode && req.path !== '/login' && req.path !== '/auth/discord' && req.path !== '/auth/callback') {
+    if (
+        db.settings?.maintenanceMode &&
+        !['/login', '/auth/discord', '/auth/callback', '/auth/admin'].includes(req.path)
+    ) {
         return res.render('maintenance', { 
             stats: { botName: client?.user?.username || "OsQarek's Universe" }
         });
