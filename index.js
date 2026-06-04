@@ -3752,10 +3752,14 @@ setInterval(async () => {
     }
 }, 10000);
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
     console.log("💾 SIGINT received. Syncing database...");
+    
+    // We call the async save and wait for it
     await db.save();
-    process.exit();
+    
+    console.log("💾 Database synced. Shutting down.");
+    process.exit(0);
 });
 
 // -- WELCOME & GOODBYE MODULE ---
