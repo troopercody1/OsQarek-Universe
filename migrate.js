@@ -1,22 +1,21 @@
-const dbUri = process.env.MONGODB_URI;
+import mongoose from 'mongoose';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 
-if (!dbUri) {
-    console.error("CRITICAL: MONGODB_URI is not set in Render Environment!");
-    process.exit(1);
-}
-
-await mongoose.connect(dbUri);
-
-const mongoose = require('mongoose');
-const User = require('./models/User');
-const Case = require('./models/Case');
+// Import your data and models
 const data = require('./database.json');
+const User = require('./models/User.js');
+const Case = require('./models/Case.js');
 
 async function migrate() {
     try {
+        const dbUri = process.env.MONGODB_URI;
+        if (!dbUri) {
+            throw new Error("MONGODB_URI is not defined in environment variables!");
+        }
+
         console.log("Connecting to MongoDB...");
-        // Ensure MONGO_URI is set in your environment
-        await mongoose.connect(process.env.MONGO_URI);
+        await mongoose.connect(dbUri.trim());
         console.log("Connected successfully.");
 
         // 1. Migrate Users
@@ -44,7 +43,7 @@ async function migrate() {
         }
         console.log("User migration complete.");
 
-        // 2. Migrate Cases (Including all archive records)
+        // 2. Migrate Cases
         if (data.cases && data.cases.length > 0) {
             console.log(`Migrating ${data.cases.length} cases...`);
             for (const caseDoc of data.cases) {
@@ -54,10 +53,9 @@ async function migrate() {
                     { upsert: true }
                 );
             }
-            console.log("Case migration complete.");
         }
 
-        console.log("All migrations finished successfully!");
+        console.log("Migration complete!");
         process.exit(0);
     } catch (err) {
         console.error("Migration failed:", err);
