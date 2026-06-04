@@ -61,16 +61,13 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
 app.use((req, res, next) => {
-    // Check if maintenance is ON
     const isMaintenance = db.settings?.maintenanceMode;
-    // Check if the user is trying to access an Auth route
     const isAuthRoute = req.path.startsWith('/auth/') || req.path === '/login';
-    // Check if the user is already the Master Admin
     const isAdmin = req.session?.user?.id === 'admin';
 
-    // Only block if: Maintenance is ON AND they aren't Admin AND it's NOT a login page
     if (isMaintenance && !isAdmin && !isAuthRoute) {
-        return res.render('maintenance');
+        // Pass the settings object so EJS can read maintenanceETA
+        return res.render('maintenance', { settings: db.settings });
     }
     
     next();
