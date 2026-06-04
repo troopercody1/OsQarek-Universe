@@ -512,15 +512,36 @@ let db = {
     reminders: [],
     stats: {},
     aiEnabled: true,
-    customQuizzes: {}
+    customQuizzes: {},
+
+    // The save function is now a method INSIDE the db object
+    async save() {
+        try {
+            // Check if redis is defined in the global scope
+            if (typeof redis !== 'undefined') {
+                // Destructure 'save' to prevent trying to save the function itself to Redis
+                const { save, ...dataToSave } = this;
+                await redis.set('bot_db', dataToSave);
+                console.log("💾 Database synced to Upstash.");
+            } else {
+                // Fallback to local file if Redis isn't connected
+                fs.writeFileSync('./database.json', JSON.stringify(this, null, 4));
+                console.log("💾 Database synced to local file.");
+            }
+        } catch (err) {
+            console.error("❌ Failed to save database:", err.message);
+        }
+    }
 };
 
+// --- INITIAL LOAD ---
 try {
     const dbPath = './database.json';
     if (fs.existsSync(dbPath)) {
         const data = fs.readFileSync(dbPath, 'utf8');
         if (data.trim().length > 0) {
-            db = { ...db, ...JSON.parse(data) };
+            // Merge loaded data into your existing db object
+            Object.assign(db, JSON.parse(data));
             console.log("✅ Database Loaded.");
         }
     }
@@ -581,7 +602,7 @@ const applyEscalation = async (guild, targetUser, targetMember, reason, moderato
         reason: reason, moderator: moderatorName, timestamp: new Date()
     });
 
-    saveDB();
+    await db.save();
     //-- Return both so the log can use them
     return { action: actionTaken, caseId: newCaseId };
 };
@@ -790,7 +811,7 @@ client.on('interactionCreate', async (interaction) => {
                 delete db.loa[targetId];
             }
 
-            saveDB();
+            await db.save();
 
             const updatedEmbed = EmbedBuilder.from(originalEmbed)
                 .setTitle(action === 'approve' ? '✅ LOA APPROVED' : '❌ LOA DENIED')
@@ -981,23 +1002,23 @@ client.on('interactionCreate', async (interaction) => {
                 const cmd = options.getString('command').toLowerCase();
                 if (db.disabledCommands.includes(cmd)) db.disabledCommands = db.disabledCommands.filter(c => c !== cmd);
                 else db.disabledCommands.push(cmd);
-                saveDB();
+                await db.save();
                 logAction(guild, '⚙️ Toggle', `Command /${cmd} toggled by ${user.tag}`);
                 return interaction.editReply(`✅ Toggled \`/${cmd}\`.`);
             }
 
             // --- 2. CONFIGURATION ---
             if (commandName === 'modlog' && isAtLeastAdmin) {
-                db.modLogChannel = options.getChannel('channel').id; saveDB();
+                db.modLogChannel = options.getChannel('channel').id; await db.save();
                 return interaction.editReply("✅ Mod Log set.");
             }
             if (commandName === 'setchatlog' && isAtLeastAdmin) {
-                db.chatLogChannel = options.getChannel('channel').id; saveDB();
+                db.chatLogChannel = options.getChannel('channel').id; await db.save();
                 return interaction.editReply("✅ Chat Log set.");
             }
             if (commandName === 'setloachannel' && isAtLeastAdmin) {
                 db.loaChannel = options.getChannel('channel').id;
-                saveDB();
+                await db.save();
                 return interaction.editReply(`✅ LOA Request channel set to <#${db.loaChannel}>`);
             }
             if (commandName === 'aitoggle') {
@@ -1012,7 +1033,7 @@ client.on('interactionCreate', async (interaction) => {
                 }
 
                 db.aiEnabled = status;
-                saveDB();
+                await db.save();
 
                 const embed = new EmbedBuilder()
                     .setTitle('🌌 AI System Update')
@@ -1024,11 +1045,11 @@ client.on('interactionCreate', async (interaction) => {
             }
             if (commandName === 'addmod' && isAtLeastAdmin) {
                 const r = options.getRole('role'); if (!db.modRoles.includes(r.id)) db.modRoles.push(r.id);
-                saveDB(); return interaction.editReply(`✅ Mod role ${r.name} added.`);
+                await db.save(); return interaction.editReply(`✅ Mod role ${r.name} added.`);
             }
             if (commandName === 'deletemod' && isAtLeastAdmin) {
                 db.modRoles = db.modRoles.filter(id => id !== options.getRole('role').id);
-                saveDB(); return interaction.editReply("✅ Mod role removed.");
+                await db.save(); return interaction.editReply("✅ Mod role removed.");
             }
             if (commandName === 'ignorechannel' && isAtLeastAdmin) {
                 // -- 1. Get the channel ID and ensure it is a String
@@ -1049,7 +1070,7 @@ client.on('interactionCreate', async (interaction) => {
                 }
 
                 //-- 3. Save and Respond
-                saveDB();
+                await db.save();
                 return interaction.editReply(`✅ <#${cid}> ${status}.`);
             }
             if (commandName === 'music') {
@@ -1542,7 +1563,7 @@ client.on('interactionCreate', async (interaction) => {
                     db.cases.push({ id: db.cases.length + 1, user: target.id, type: 'Strike Removal', reason, moderator: moderator.user.tag });
                 }
 
-                saveDB();
+                await db.save();
 
                 // 1. DM the Staff Member
                 try { await target.send({ embeds: [embed] }); } catch (e) { }
@@ -1618,7 +1639,7 @@ client.on('interactionCreate', async (interaction) => {
                     await interaction.editReply(`🌌 **${target.username}** is now banned from using all bot features.`);
                 }
 
-                saveDB(); // Ensure this persists on your Mac mini
+                await db.save(); // Ensure this persists on your Mac mini
             }
             if (commandName === 'fun') {
                 const subcommand = interaction.options.getSubcommand();
@@ -1742,7 +1763,7 @@ client.on('interactionCreate', async (interaction) => {
                     creator: user.id,
                     approved: false
                 });
-                saveDB();
+                await db.save();
 
                 // 4. Build the Review Embed for Staff
                 const reviewEmbed = new EmbedBuilder()
@@ -1860,25 +1881,25 @@ client.on('interactionCreate', async (interaction) => {
                 if (!db.customQuizzes?.[name]) return interaction.editReply("❌ Quiz not found.");
 
                 delete db.customQuizzes[name];
-                saveDB();
+                await db.save();
                 await interaction.editReply(`🗑️ Entire quiz **${name}** and all its questions have been deleted.`);
             }
             // --- 4. RECORDS & NOTES ---
             if (commandName === 'delwarn' && isAtLeastAdmin) {
                 const target = options.getUser('target');
-                if (db.offences[target.id] > 0) { db.offences[target.id]--; saveDB(); }
+                if (db.offences[target.id] > 0) { db.offences[target.id]--; await db.save(); }
                 logAction(guild, '➖ Warn Removed', `User: ${target.tag}\nMod: ${user.tag}`);
                 return interaction.editReply("✅ Removed 1 offence.");
             }
             if (commandName === 'clearwarns' && isAtLeastAdmin) {
-                const target = options.getUser('target'); db.offences[target.id] = 0; saveDB();
+                const target = options.getUser('target'); db.offences[target.id] = 0; await db.save();
                 logAction(guild, '♻️ Warns Cleared', `User: ${target.tag}\nMod: ${user.tag}`);
                 return interaction.editReply("✅ Cleared all offences.");
             }
             if (commandName === 'addnote' && isTrial) {
                 const target = options.getUser('target'); if (!db.notes[target.id]) db.notes[target.id] = [];
                 db.notes[target.id].push({ text: options.getString('note'), mod: user.tag });
-                saveDB(); return interaction.editReply("✅ Note added.");
+                await db.save(); return interaction.editReply("✅ Note added.");
             }
             if (commandName === 'notes' && isTrial) {
                 const target = options.getUser('target');
@@ -1899,18 +1920,18 @@ client.on('interactionCreate', async (interaction) => {
                 if (status) {
                     if (!db.quizBanned.includes(target.id)) {
                         db.quizBanned.push(target.id);
-                        saveDB();
+                        await db.save();
                     }
                     await interaction.editReply(`🚫 **${target.username}** has been banned from creating quizzes.`);
                 } else {
                     db.quizBanned = db.quizBanned.filter(id => id !== target.id);
-                    saveDB();
+                    await db.save();
                     await interaction.editReply(`✅ **${target.username}** is no longer banned from creating quizzes.`);
                 }
             }
             if (commandName === 'deletenote' && isTrial) {
                 const target = options.getUser('target'); const idx = options.getInteger('index') - 1;
-                if (db.notes[target.id]?.[idx]) { db.notes[target.id].splice(idx, 1); saveDB(); return interaction.editReply("✅ Deleted."); }
+                if (db.notes[target.id]?.[idx]) { db.notes[target.id].splice(idx, 1); await db.save(); return interaction.editReply("✅ Deleted."); }
                 return interaction.editReply("❌ Not found.");
             }
             if (commandName === 'offences') {
@@ -2043,7 +2064,7 @@ client.on('interactionCreate', async (interaction) => {
                         // Database tracking
                         if (!db.stats[m.author.id]) db.stats[m.author.id] = { count: 0, triviaPoints: 0 };
                         db.stats[m.author.id].triviaPoints = (db.stats[m.author.id].triviaPoints || 0) + 1;
-                        saveDB();
+                        await db.save();
 
                         await m.reply(`🌟 **Correct!** It was **${state.name}**. Next round starting...`);
                         collector.stop();
@@ -2169,7 +2190,7 @@ client.on('interactionCreate', async (interaction) => {
                         // Database tracking
                         if (!db.stats[m.author.id]) db.stats[m.author.id] = { count: 0, triviaPoints: 0 };
                         db.stats[m.author.id].triviaPoints++;
-                        saveDB();
+                        await db.save();
 
                         await m.reply(`🌟 **Correct!** It was **${country.name}** (${country.code.toUpperCase()}). Next round starting...`);
                         collector.stop();
@@ -2268,7 +2289,7 @@ client.on('interactionCreate', async (interaction) => {
 
                         if (!db.stats[m.author.id]) db.stats[m.author.id] = { count: 0, triviaPoints: 0 };
                         db.stats[m.author.id].triviaPoints++;
-                        saveDB();
+                        await db.save();
 
                         await m.reply(`🌟 **Correct!** That was **${current.name}**. Next one...`);
                         collector.stop();
@@ -2623,7 +2644,7 @@ client.on('interactionCreate', async (interaction) => {
                         }
                     }
 
-                    saveDB();
+                    await db.save();
 
                     // 4. Final Output Construction
                     // Updated text to reflect Monday
@@ -2881,7 +2902,7 @@ client.on('interactionCreate', async (interaction) => {
             if (commandName === 'messagereset' && isAtLeastAdmin) {
                 // 1. Wipe all stats in the database
                 db.stats = {};
-                saveDB();
+                await db.save();
 
                 // 2. Log the action with a timestamp for the audit trail
                 // Using user.username for modern Discord compatibility
@@ -2976,7 +2997,7 @@ client.on('interactionCreate', async (interaction) => {
             }
             if (commandName === 'reason' && isMod) {
                 const c = db.cases.find(x => x.id === options.getInteger('id'));
-                if (c) { c.reason = options.getString('new_reason'); saveDB(); return interaction.editReply("✅ Case updated."); }
+                if (c) { c.reason = options.getString('new_reason'); await db.save(); return interaction.editReply("✅ Case updated."); }
             }
 
             // --- 5. MISC & UTILITY ---
@@ -3061,7 +3082,7 @@ client.on('interactionCreate', async (interaction) => {
             if (commandName === 'afk') {
                 const reason = options.getString('reason') || 'AFK';
                 db.afk[user.id] = { reason: reason, timestamp: Date.now() };
-                saveDB();
+                await db.save();
 
                 if (member.manageable && !member.displayName.startsWith('[AFK] ')) {
                     member.setNickname(`[AFK] ${member.displayName}`).catch(() => { });
@@ -3087,7 +3108,7 @@ client.on('interactionCreate', async (interaction) => {
                     task: task,
                     expiresAt: endTimestamp
                 });
-                saveDB();
+                await db.save();
 
                 const embed = new EmbedBuilder()
                     .setTitle('⏰ Reminder Set')
@@ -3167,7 +3188,7 @@ client.on('interactionCreate', async (interaction) => {
                 if (!db.loa[targetUser.id]) return interaction.editReply("❌ No active LOA found.");
 
                 delete db.loa[targetUser.id];
-                saveDB();
+                await db.save();
                 if (typeof logAction === 'function') {
                     logAction(guild, '📂 LOA Ended', `**Staff:** ${targetUser.user.tag}\n**Ended By:** ${user.tag}`, 0x00FF00);
                 }
@@ -3367,7 +3388,7 @@ client.on('interactionCreate', async (interaction) => {
                 }
 
                 // Save to your Mac Mini's DB
-                saveDB();
+                await db.save();
             }
         } catch (err) {
             console.error("❌ Command Error:", err);
@@ -3492,7 +3513,7 @@ client.on('messageCreate', async (message) => {
     if (!db.stats) db.stats = {};
     if (!db.stats[message.author.id]) db.stats[message.author.id] = { count: 0 };
     db.stats[message.author.id].count++;
-    if (db.stats[message.author.id].count % 10 === 0) saveDB();
+    if (db.stats[message.author.id].count % 10 === 0) await db.save();
 
 
     // 2. AFK System
@@ -3501,7 +3522,7 @@ client.on('messageCreate', async (message) => {
     // --- Part A: Returning from AFK ---
     if (db.afk[message.author.id]) {
         delete db.afk[message.author.id];
-        saveDB();
+        await db.save();
 
         // Robust Nickname Restore
         if (message.member.manageable && message.member.displayName.startsWith('[AFK]')) {
@@ -3592,7 +3613,7 @@ setInterval(async () => {
         }
     }
 
-    if (changed) saveDB();
+    if (changed) await db.save();
 }, 5000);
 
 
@@ -3693,7 +3714,7 @@ setInterval(async () => {
     if (dueReminders.length > 0) {
         // 1. Remove them from DB IMMEDIATELY to prevent double-reminding on lag
         db.reminders = db.reminders.filter(r => r.expiresAt > now);
-        saveDB();
+        await db.save();
 
         for (const reminder of dueReminders) {
             try {
@@ -3719,7 +3740,7 @@ setInterval(async () => {
 
 process.on('SIGINT', () => {
     console.log("💾 SIGINT received. Syncing database...");
-    saveDB();
+    await db.save();
     process.exit();
 });
 
