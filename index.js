@@ -36,7 +36,7 @@ process.on('uncaughtException', (err) => console.error('CRITICAL DASHBOARD ERROR
 process.on('unhandledRejection', (reason, promise) => console.error('Unhandled Promise Rejection:', reason));
 
 const PORT = process.env.PORT || 3000;
-const ALLOWED_ROLES = ["850513944329191445", "1511810524818440243", "1256027411259326524", "850513087399329823", "801828933800296478", "772558550555295794"];
+const ALLOWED_ROLES = ["850513944329191445", "1511810524818440243", "771423764511981599", "850513087399329823", "801828933800296478", "772558550555295794"];
 
 let client;
 
@@ -610,7 +610,7 @@ client.on('interactionCreate', async (interaction) => {
 
     // 3. BUTTON LOGIC
     if (interaction.isButton()) {
-        const staffRoles = ['850513087399329823', '850513944329191445', '1256027411259326524', '1423422102610120884'];
+        const staffRoles = ['850513087399329823', '850513944329191445', '771423764511981599', '1511810524818440243'];
         const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.Administrator) ||
             interaction.member.roles.cache.some(r => staffRoles.includes(r.id));
 
@@ -702,8 +702,8 @@ client.on('interactionCreate', async (interaction) => {
                 headMod: '801828933800296478',
                 admin: '850513087399329823',
                 headAdmin: '850513944329191445',
-                coOwner: '1423422102610120884',
-                owner: '1256027411259326524'
+                coOwner: '1511810524818440243',
+                owner: '771423764511981599'
             };
 
             // Hierarchy Check
@@ -892,8 +892,8 @@ client.on('interactionCreate', async (interaction) => {
                 const status = interaction.options.getBoolean('status');
                 const moderator = interaction.member;
 
-                const OWNER_ROLE_ID = '1256027411259326524';
-                const CO_OWNER_ROLE_ID = '1423422102610120884';
+                const OWNER_ROLE_ID = '771423764511981599';
+                const CO_OWNER_ROLE_ID = '1511810524818440243';
 
                 if (!moderator.roles.cache.has(OWNER_ROLE_ID) && !moderator.roles.cache.has(CO_OWNER_ROLE_ID)) {
                     return interaction.editReply("❌ Only Owner/Co-Owner can toggle the AI.");
@@ -1200,8 +1200,8 @@ client.on('interactionCreate', async (interaction) => {
                     '801828933800296478', // Head Mod
                     '850513087399329823', // Admin
                     '850513944329191445', // Head Admin
-                    '1256027411259326524', // Owner
-                    '1423422102610120884'  // Co-Owner
+                    '771423764511981599', // Owner
+                    '1511810524818440243'  // Co-Owner
                 ];
 
                 // Permission check: Admin+ only
@@ -1395,8 +1395,8 @@ client.on('interactionCreate', async (interaction) => {
                 const moderator = interaction.member;
 
                 // IDs
-                const OWNER_ROLE_ID = '1256027411259326524';
-                const CO_OWNER_ROLE_ID = '1423422102610120884';
+                const OWNER_ROLE_ID = '771423764511981599';
+                const CO_OWNER_ROLE_ID = '1511810524818440243';
                 const STAFF_ONLY_LOG = '1478171273422045277';
 
                 if (!moderator.roles.cache.has(OWNER_ROLE_ID) && !moderator.roles.cache.has(CO_OWNER_ROLE_ID)) {
@@ -2480,8 +2480,8 @@ client.on('interactionCreate', async (interaction) => {
                         m.roles.cache.has('826829037136510986') ||
                         m.roles.cache.has('772558550555295794') ||
                         m.roles.cache.has('850513087399329823') ||
-                        m.roles.cache.has('1423422102610120884') ||
-                        m.roles.cache.has('1256027411259326524')
+                        m.roles.cache.has('1511810524818440243') ||
+                        m.roles.cache.has('771423764511981599')
                     ).map(m => m.id);
 
                     if (!db.stats) db.stats = {};
@@ -2643,7 +2643,7 @@ client.on('interactionCreate', async (interaction) => {
 
             if (commandName === 'allstaffstats') {
                 // 1. Permission Check
-                const adminRoles = ['850513087399329823', '1256027411259326524', '1423422102610120884'];
+                const adminRoles = ['850513087399329823', '771423764511981599', '1511810524818440243'];
                 // Use interaction.member to ensure it's defined
                 const hasPerms = interaction.member.roles.cache.some(r => adminRoles.includes(r.id)) ||
                     interaction.member.permissions.has(PermissionFlagsBits.Administrator);
@@ -2653,8 +2653,8 @@ client.on('interactionCreate', async (interaction) => {
                 }
 
                 const requirements = [
-                    { roleId: '1256027411259326524', name: 'Owner', min: 0, promo: 100 },
-                    { roleId: '1423422102610120884', name: 'Co-Owner', min: 0, promo: 100 },
+                    { roleId: '771423764511981599', name: 'Owner', min: 0, promo: 100 },
+                    { roleId: '1511810524818440243', name: 'Co-Owner', min: 0, promo: 100 },
                     { roleId: '850513944329191445', name: 'Head Administrator', min: 750, promo: 99999 },
                     { roleId: '850513087399329823', name: 'Administrator', min: 500, promo: 1250 },
                     { roleId: '801828933800296478', name: 'Head Moderator', min: 300, promo: 750 },
@@ -2707,8 +2707,8 @@ client.on('interactionCreate', async (interaction) => {
                     '801828933800296478', // Head Mod
                     '850513087399329823', // Admin
                     '850513944329191445', // Head Admin
-                    '1423422102610120884', // Co-Owner
-                    '1256027411259326524'  // Owner
+                    '1511810524818440243', // Co-Owner
+                    '771423764511981599'  // Owner
                 ];
 
                 const isStaff = interaction.member.roles.cache.some(r => staffRoles.includes(r.id));
@@ -2721,8 +2721,8 @@ client.on('interactionCreate', async (interaction) => {
                     const msgCount = db.stats[targetMember.id]?.count || 0;
 
                     const requirements = [
-                        { roleId: '1256027411259326524', name: 'Owner', min: 0, promo: 100 },
-                        { roleId: '1423422102610120884', name: 'Co-Owner', min: 0, promo: 100 },
+                        { roleId: '771423764511981599', name: 'Owner', min: 0, promo: 100 },
+                        { roleId: '1511810524818440243', name: 'Co-Owner', min: 0, promo: 100 },
                         { roleId: '850513944329191445', name: 'Head Administrator', min: 750, promo: 99999 },
                         { roleId: '850513087399329823', name: 'Administrator', min: 500, promo: 1250 },
                         { roleId: '801828933800296478', name: 'Head Moderator', min: 300, promo: 750 },
@@ -2908,7 +2908,7 @@ client.on('interactionCreate', async (interaction) => {
             // --- OWNER-ONLY STATUS COMMAND ---
             if (commandName === 'status') {
                 // 1. Permission Check
-                const adminRoles = ['850513087399329823', '1256027411259326524', '1423422102610120884'];
+                const adminRoles = ['850513087399329823', '771423764511981599', '1511810524818440243'];
                 const hasPerms = member.roles.cache.some(r => adminRoles.includes(r.id)) || member.permissions.has(PermissionFlagsBits.Administrator);
 
                 if (!hasPerms) {
@@ -3048,7 +3048,7 @@ client.on('interactionCreate', async (interaction) => {
             if (commandName === 'endloa') {
                 const targetUser = options.getMember('staff') || member;
                 const isSelf = targetUser.id === user.id;
-                const roles = { admin: '850513087399329823', owner: '1256027411259326524', coOwner: '1423422102610120884' };
+                const roles = { admin: '850513087399329823', owner: '771423764511981599', coOwner: '1511810524818440243' };
                 const hasManagementPerms = member.roles.cache.has(roles.admin) || member.roles.cache.has(roles.owner) || member.roles.cache.has(roles.coOwner) || member.permissions.has(PermissionFlagsBits.Administrator);
 
                 if (!isSelf && !hasManagementPerms) return interaction.editReply("❌ Permission denied.");
