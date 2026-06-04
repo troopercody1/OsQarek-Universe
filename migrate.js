@@ -1,3 +1,12 @@
+const dbUri = process.env.MONGODB_URI;
+
+if (!dbUri) {
+    console.error("CRITICAL: MONGODB_URI is not set in Render Environment!");
+    process.exit(1);
+}
+
+await mongoose.connect(dbUri);
+
 const mongoose = require('mongoose');
 const User = require('./models/User');
 const Case = require('./models/Case');
