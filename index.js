@@ -1,4 +1,5 @@
 process.env.TZ = 'Europe/London';
+const mongoose = require('mongoose');
 
 require('dotenv').config();
 const fs = require('fs');
@@ -18,6 +19,11 @@ let badWordsFile = require('./badwords.js');
 
 process.on('uncaughtException', (err) => console.error('CRITICAL DASHBOARD ERROR:', err));
 process.on('unhandledRejection', (reason, promise) => console.error('Unhandled Promise Rejection:', reason));
+
+// Connect to MongoDB
+mongoose.connect(process.env.MONGODB_URI)
+  .then(() => console.log('Successfully connected to MongoDB Atlas'))
+  .catch(err => console.error('MongoDB Connection Error:', err));
 
 // -- ADVANCED INTERACTIVE DASHBOARD WITH DISCORD OAUTH2 (RENDER PATCHED) --
 const session = require('express-session');
