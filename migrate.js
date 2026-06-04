@@ -5,7 +5,7 @@ const data = require('./database.json');
 
 async function migrate() {
     try {
-        await mongoose.connect('YOUR_MONGO_URI');
+        await mongoose.connect('mongodb+srv://codyiliffe985:aIw2wxCuvOz59mT6@oubot.ovfrtzz.mongodb.net/');
         console.log("Connected to MongoDB.");
 
         // 1. Migrate Users
