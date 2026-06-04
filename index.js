@@ -1,11 +1,13 @@
 import 'dotenv/config';
 import express from 'express';
-const app = express();
+import session from 'express-session';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
+import axios from 'axios';
+import { Client, GatewayIntentBits, Partials, ActivityType, PermissionFlagsBits, EmbedBuilder } from 'discord.js';
+import { BrevoClient } from '@getbrevo/brevo';
+import play from 'play-dl'; // Ensure you have installed 'play-dl'
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
