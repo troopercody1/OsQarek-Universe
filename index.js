@@ -1,26 +1,23 @@
-import 'dotenv/config';
-import express from 'express';
-import session from 'express-session';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import mongoose from 'mongoose';
-import axios from 'axios';
-import { Client, GatewayIntentBits, Partials, ActivityType, PermissionFlagsBits, EmbedBuilder } from 'discord.js';
-import { BrevoClient } from '@getbrevo/brevo';
-import play from 'play-dl'; // Ensure you have installed 'play-dl'
+process.env.TZ = 'Europe/London';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
+const dayjs = require('dayjs');
+const relativeTime = require('dayjs/plugin/relativeTime');
+const express = require('express');
+const app = express(); 
+app.set('trust proxy', 1)
+const play = require('play-dl');
+const axios = require('axios');
+const { fetch } = require('undici');
+const { Readable } = require('stream');
+
 let stayInVC = false;
 let badWordsFile = require('./badwords.js');
 
 process.on('uncaughtException', (err) => console.error('CRITICAL DASHBOARD ERROR:', err));
 process.on('unhandledRejection', (reason, promise) => console.error('Unhandled Promise Rejection:', reason));
-
-// Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('Successfully connected to MongoDB Atlas'))
-  .catch(err => console.error('MongoDB Connection Error:', err));
 
 // -- ADVANCED INTERACTIVE DASHBOARD WITH DISCORD OAUTH2 (RENDER PATCHED) --
 const session = require('express-session');
@@ -42,15 +39,10 @@ process.on('unhandledRejection', (reason, promise) => console.error('Unhandled P
 
 const PORT = process.env.PORT || 3000;
 
-async function safeSave() {
+function safeSave() {
     try {
-        // Update the MongoDB document with the new 'db' object
-        await DataModel.findOneAndUpdate(
-            { key: 'botData' }, 
-            { data: db }, 
-            { upsert: true }
-        );
-        console.log("💾 Database successfully synced to MongoDB.");
+        if (typeof db.sync === 'function') db.sync();
+        if (typeof saveDB === 'function') saveDB();
     } catch (e) {
         console.error("Database save failed:", e.message);
     }
@@ -206,44 +198,40 @@ app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login')
 
 // MAIN DASHBOARD ROUTE
 app.get('/', checkAuth, async (req, res) => {
-    try {
-        const guild = client.guilds.cache.get(process.env.GUILD_ID);
+    const guild = client.guilds.cache.get(process.env.GUILD_ID);
+    
+    let members = [];
+    let emojis = []; 
+    
+    if (guild) {
+        const fetched = await guild.members.fetch().catch(() => guild.members.cache);
+        members = Array.from(fetched.values()).filter(m => !(db.reviewedUsers || []).includes(m.id));
         
-        // Fetch MongoDB Data
-        const dataDoc = await DataModel.findOne({ key: 'botData' }); // Assuming you kept the 'Data' collection
-        const db = dataDoc ? dataDoc.data : { settings: {}, cases: [], reactionRoles: [], bannedWords: [], reviewedUsers: [] };
-        
-        let members = [];
-        let emojis = []; 
-        
-        if (guild) {
-            const fetched = await guild.members.fetch().catch(() => guild.members.cache);
-            members = Array.from(fetched.values()).filter(m => !(db.reviewedUsers || []).includes(m.id));
-            emojis = guild.emojis.cache.map(e => ({ id: e.id, name: e.name, toString: e.toString() }));
-        }
-
-        res.render('index', { 
-            stats: { 
-                botName: client.user?.username || "Dashboard", 
-                botStatus: client.readyAt ? "ONLINE" : "OFFLINE", 
-                guildsCount: client.guilds.cache.size, 
-                totalUsers: client.users.cache.size, 
-                ping: `${Math.round(client.ws.ping || 0)}ms` 
-            },
-            members,
-            emojis,
-            cases: db.cases || [],
-            settings: db.settings || { prefix: "!", welcomeChannel: "...", goodbyeChannel: "..." },
-            reactionRoles: db.reactionRoles || [],
-            bannedWords: db.bannedWords || [],
-            user: req.session.user,
-            logs: await Case.find().sort({ _id: -1 }).limit(20),
-            errors: global.botErrors || []
-        });
-    } catch (err) {
-        console.error("Dashboard error:", err);
-        res.status(500).send("Error loading dashboard data.");
+        emojis = guild.emojis.cache.map(e => ({ 
+            id: e.id, 
+            name: e.name, 
+            toString: e.toString() 
+        }));
     }
+
+    res.render('index', { 
+        stats: { 
+            botName: client.user?.username || "Dashboard", 
+            botStatus: client.readyAt ? "ONLINE" : "OFFLINE", 
+            guildsCount: client.guilds.cache.size, 
+            totalUsers: client.users.cache.size, 
+            ping: `${Math.round(client.ws.ping || 0)}ms` 
+        },
+        members,
+        emojis, // 3. Pass it to the view
+        cases: db.cases || [],
+        settings: db.settings || { prefix: "!", welcomeChannel: "...", goodbyeChannel: "..." },
+        reactionRoles: db.reactionRoles || [],
+        bannedWords: db.bannedWords || [],
+        user: req.session.user,
+        logs: global.botLogs || [],
+        errors: global.botErrors || []
+    });
 });
 // SETTINGS & FEATURES ROUTES
 app.post('/update-settings', checkAuth, (req, res) => {
@@ -519,10 +507,21 @@ let db = {
     reminders: [],
     stats: {},
     aiEnabled: true,
-    customQuizzes: {},
-    reviewedUsers: []
+    customQuizzes: {}
 };
 
+try {
+    const dbPath = './database.json';
+    if (fs.existsSync(dbPath)) {
+        const data = fs.readFileSync(dbPath, 'utf8');
+        if (data.trim().length > 0) {
+            db = { ...db, ...JSON.parse(data) };
+            console.log("✅ Database Loaded.");
+        }
+    }
+} catch (e) {
+    console.error("❌ DB Load Error:", e.message);
+}
 
 // --- LOGGING SYSTEM ---
 function logAction(guild, title, description, color = 0x00FF00) {
@@ -544,37 +543,16 @@ function logAction(guild, title, description, color = 0x00FF00) {
     }
 }
 
-// --- DATABASE BRIDGE (MongoDB to JSON Simulation) ---
-// Create a schema that holds your entire JSON object in one document
-const DataSchema = new mongoose.Schema({
-    key: { type: String, default: 'botData' },
-    data: Object
-});
-const DataModel = mongoose.model('Data', DataSchema);
-
-// Load data from MongoDB on startup
-client.once('clientReady', async () => {
-    const doc = await DataModel.findOne({ key: 'botData' });
-    if (doc) {
-        db = doc.data;
-        console.log("✅ Database Loaded from MongoDB Atlas.");
-    } else {
-        // Initialize if empty
-        db = { offences: {}, staffStrikes: {}, cases: [], settings: {}, reactionRoles: [], bannedWords: [], loa: {} };
-        await new DataModel({ data: db }).save();
-        console.log("🆕 Fresh database initialized in MongoDB.");
-    }
-});
-
-// Update your saveDB function to write to MongoDB instead of disk
-async function saveDB() {
+// --- DATABASE SAVING SYSTEM ---
+function saveDB() {
     try {
-        await DataModel.findOneAndUpdate({ key: 'botData' }, { data: db }, { upsert: true });
-        console.log("💾 Database successfully synced to MongoDB.");
+        fs.writeFileSync('./database.json', JSON.stringify(db, null, 4));
+        console.log("💾 Database successfully synced to disk.");
     } catch (err) {
-        console.error("❌ CRITICAL: Failed to save to MongoDB:", err.message);
+        console.error("❌ CRITICAL: Failed to save database.json:", err.message);
     }
 }
+
 
 // --- PUNISHMENT LADDER ---
 const applyEscalation = async (guild, targetUser, targetMember, reason, moderatorName) => {
@@ -598,7 +576,7 @@ const applyEscalation = async (guild, targetUser, targetMember, reason, moderato
         reason: reason, moderator: moderatorName, timestamp: new Date()
     });
 
-    await saveDB();
+    saveDB();
     //-- Return both so the log can use them
     return { action: actionTaken, caseId: newCaseId };
 };
@@ -807,7 +785,7 @@ client.on('interactionCreate', async (interaction) => {
                 delete db.loa[targetId];
             }
 
-            await saveDB();
+            saveDB();
 
             const updatedEmbed = EmbedBuilder.from(originalEmbed)
                 .setTitle(action === 'approve' ? '✅ LOA APPROVED' : '❌ LOA DENIED')
@@ -998,23 +976,23 @@ client.on('interactionCreate', async (interaction) => {
                 const cmd = options.getString('command').toLowerCase();
                 if (db.disabledCommands.includes(cmd)) db.disabledCommands = db.disabledCommands.filter(c => c !== cmd);
                 else db.disabledCommands.push(cmd);
-                await saveDB();
+                saveDB();
                 logAction(guild, '⚙️ Toggle', `Command /${cmd} toggled by ${user.tag}`);
                 return interaction.editReply(`✅ Toggled \`/${cmd}\`.`);
             }
 
             // --- 2. CONFIGURATION ---
             if (commandName === 'modlog' && isAtLeastAdmin) {
-                db.modLogChannel = options.getChannel('channel').id; await saveDB();
+                db.modLogChannel = options.getChannel('channel').id; saveDB();
                 return interaction.editReply("✅ Mod Log set.");
             }
             if (commandName === 'setchatlog' && isAtLeastAdmin) {
-                db.chatLogChannel = options.getChannel('channel').id; await saveDB();
+                db.chatLogChannel = options.getChannel('channel').id; saveDB();
                 return interaction.editReply("✅ Chat Log set.");
             }
             if (commandName === 'setloachannel' && isAtLeastAdmin) {
                 db.loaChannel = options.getChannel('channel').id;
-                await saveDB();
+                saveDB();
                 return interaction.editReply(`✅ LOA Request channel set to <#${db.loaChannel}>`);
             }
             if (commandName === 'aitoggle') {
@@ -1029,7 +1007,7 @@ client.on('interactionCreate', async (interaction) => {
                 }
 
                 db.aiEnabled = status;
-                await saveDB();
+                saveDB();
 
                 const embed = new EmbedBuilder()
                     .setTitle('🌌 AI System Update')
@@ -1041,11 +1019,11 @@ client.on('interactionCreate', async (interaction) => {
             }
             if (commandName === 'addmod' && isAtLeastAdmin) {
                 const r = options.getRole('role'); if (!db.modRoles.includes(r.id)) db.modRoles.push(r.id);
-                await saveDB(); return interaction.editReply(`✅ Mod role ${r.name} added.`);
+                saveDB(); return interaction.editReply(`✅ Mod role ${r.name} added.`);
             }
             if (commandName === 'deletemod' && isAtLeastAdmin) {
                 db.modRoles = db.modRoles.filter(id => id !== options.getRole('role').id);
-                await saveDB(); return interaction.editReply("✅ Mod role removed.");
+                saveDB(); return interaction.editReply("✅ Mod role removed.");
             }
             if (commandName === 'ignorechannel' && isAtLeastAdmin) {
                 // -- 1. Get the channel ID and ensure it is a String
@@ -1066,7 +1044,7 @@ client.on('interactionCreate', async (interaction) => {
                 }
 
                 //-- 3. Save and Respond
-                await saveDB();
+                saveDB();
                 return interaction.editReply(`✅ <#${cid}> ${status}.`);
             }
             if (commandName === 'music') {
@@ -1559,7 +1537,7 @@ client.on('interactionCreate', async (interaction) => {
                     db.cases.push({ id: db.cases.length + 1, user: target.id, type: 'Strike Removal', reason, moderator: moderator.user.tag });
                 }
 
-                await saveDB();
+                saveDB();
 
                 // 1. DM the Staff Member
                 try { await target.send({ embeds: [embed] }); } catch (e) { }
@@ -1635,7 +1613,7 @@ client.on('interactionCreate', async (interaction) => {
                     await interaction.editReply(`🌌 **${target.username}** is now banned from using all bot features.`);
                 }
 
-                await saveDB(); // Ensure this persists on your Mac mini
+                saveDB(); // Ensure this persists on your Mac mini
             }
             if (commandName === 'fun') {
                 const subcommand = interaction.options.getSubcommand();
@@ -1759,7 +1737,7 @@ client.on('interactionCreate', async (interaction) => {
                     creator: user.id,
                     approved: false
                 });
-                await saveDB();
+                saveDB();
 
                 // 4. Build the Review Embed for Staff
                 const reviewEmbed = new EmbedBuilder()
@@ -1877,25 +1855,25 @@ client.on('interactionCreate', async (interaction) => {
                 if (!db.customQuizzes?.[name]) return interaction.editReply("❌ Quiz not found.");
 
                 delete db.customQuizzes[name];
-                await saveDB();
+                saveDB();
                 await interaction.editReply(`🗑️ Entire quiz **${name}** and all its questions have been deleted.`);
             }
             // --- 4. RECORDS & NOTES ---
             if (commandName === 'delwarn' && isAtLeastAdmin) {
                 const target = options.getUser('target');
-                if (db.offences[target.id] > 0) { db.offences[target.id]--; await saveDB(); }
+                if (db.offences[target.id] > 0) { db.offences[target.id]--; saveDB(); }
                 logAction(guild, '➖ Warn Removed', `User: ${target.tag}\nMod: ${user.tag}`);
                 return interaction.editReply("✅ Removed 1 offence.");
             }
             if (commandName === 'clearwarns' && isAtLeastAdmin) {
-                const target = options.getUser('target'); db.offences[target.id] = 0; await saveDB();
+                const target = options.getUser('target'); db.offences[target.id] = 0; saveDB();
                 logAction(guild, '♻️ Warns Cleared', `User: ${target.tag}\nMod: ${user.tag}`);
                 return interaction.editReply("✅ Cleared all offences.");
             }
             if (commandName === 'addnote' && isTrial) {
                 const target = options.getUser('target'); if (!db.notes[target.id]) db.notes[target.id] = [];
                 db.notes[target.id].push({ text: options.getString('note'), mod: user.tag });
-                await saveDB(); return interaction.editReply("✅ Note added.");
+                saveDB(); return interaction.editReply("✅ Note added.");
             }
             if (commandName === 'notes' && isTrial) {
                 const target = options.getUser('target');
@@ -1916,18 +1894,18 @@ client.on('interactionCreate', async (interaction) => {
                 if (status) {
                     if (!db.quizBanned.includes(target.id)) {
                         db.quizBanned.push(target.id);
-                        await saveDB();
+                        saveDB();
                     }
                     await interaction.editReply(`🚫 **${target.username}** has been banned from creating quizzes.`);
                 } else {
                     db.quizBanned = db.quizBanned.filter(id => id !== target.id);
-                    await saveDB();
+                    saveDB();
                     await interaction.editReply(`✅ **${target.username}** is no longer banned from creating quizzes.`);
                 }
             }
             if (commandName === 'deletenote' && isTrial) {
                 const target = options.getUser('target'); const idx = options.getInteger('index') - 1;
-                if (db.notes[target.id]?.[idx]) { db.notes[target.id].splice(idx, 1); await saveDB(); return interaction.editReply("✅ Deleted."); }
+                if (db.notes[target.id]?.[idx]) { db.notes[target.id].splice(idx, 1); saveDB(); return interaction.editReply("✅ Deleted."); }
                 return interaction.editReply("❌ Not found.");
             }
             if (commandName === 'offences') {
@@ -2060,7 +2038,7 @@ client.on('interactionCreate', async (interaction) => {
                         // Database tracking
                         if (!db.stats[m.author.id]) db.stats[m.author.id] = { count: 0, triviaPoints: 0 };
                         db.stats[m.author.id].triviaPoints = (db.stats[m.author.id].triviaPoints || 0) + 1;
-                        await saveDB();
+                        saveDB();
 
                         await m.reply(`🌟 **Correct!** It was **${state.name}**. Next round starting...`);
                         collector.stop();
@@ -2186,7 +2164,7 @@ client.on('interactionCreate', async (interaction) => {
                         // Database tracking
                         if (!db.stats[m.author.id]) db.stats[m.author.id] = { count: 0, triviaPoints: 0 };
                         db.stats[m.author.id].triviaPoints++;
-                        await saveDB();
+                        saveDB();
 
                         await m.reply(`🌟 **Correct!** It was **${country.name}** (${country.code.toUpperCase()}). Next round starting...`);
                         collector.stop();
@@ -2285,7 +2263,7 @@ client.on('interactionCreate', async (interaction) => {
 
                         if (!db.stats[m.author.id]) db.stats[m.author.id] = { count: 0, triviaPoints: 0 };
                         db.stats[m.author.id].triviaPoints++;
-                        await saveDB();
+                        saveDB();
 
                         await m.reply(`🌟 **Correct!** That was **${current.name}**. Next one...`);
                         collector.stop();
@@ -2640,7 +2618,7 @@ client.on('interactionCreate', async (interaction) => {
                         }
                     }
 
-                    await saveDB();
+                    saveDB();
 
                     // 4. Final Output Construction
                     // Updated text to reflect Monday
@@ -2898,7 +2876,7 @@ client.on('interactionCreate', async (interaction) => {
             if (commandName === 'messagereset' && isAtLeastAdmin) {
                 // 1. Wipe all stats in the database
                 db.stats = {};
-                await saveDB();
+                saveDB();
 
                 // 2. Log the action with a timestamp for the audit trail
                 // Using user.username for modern Discord compatibility
@@ -2993,7 +2971,7 @@ client.on('interactionCreate', async (interaction) => {
             }
             if (commandName === 'reason' && isMod) {
                 const c = db.cases.find(x => x.id === options.getInteger('id'));
-                if (c) { c.reason = options.getString('new_reason'); await saveDB(); return interaction.editReply("✅ Case updated."); }
+                if (c) { c.reason = options.getString('new_reason'); saveDB(); return interaction.editReply("✅ Case updated."); }
             }
 
             // --- 5. MISC & UTILITY ---
@@ -3078,7 +3056,7 @@ client.on('interactionCreate', async (interaction) => {
             if (commandName === 'afk') {
                 const reason = options.getString('reason') || 'AFK';
                 db.afk[user.id] = { reason: reason, timestamp: Date.now() };
-                await saveDB();
+                saveDB();
 
                 if (member.manageable && !member.displayName.startsWith('[AFK] ')) {
                     member.setNickname(`[AFK] ${member.displayName}`).catch(() => { });
@@ -3104,7 +3082,7 @@ client.on('interactionCreate', async (interaction) => {
                     task: task,
                     expiresAt: endTimestamp
                 });
-                await saveDB();
+                saveDB();
 
                 const embed = new EmbedBuilder()
                     .setTitle('⏰ Reminder Set')
@@ -3184,7 +3162,7 @@ client.on('interactionCreate', async (interaction) => {
                 if (!db.loa[targetUser.id]) return interaction.editReply("❌ No active LOA found.");
 
                 delete db.loa[targetUser.id];
-                await saveDB();
+                saveDB();
                 if (typeof logAction === 'function') {
                     logAction(guild, '📂 LOA Ended', `**Staff:** ${targetUser.user.tag}\n**Ended By:** ${user.tag}`, 0x00FF00);
                 }
@@ -3384,7 +3362,7 @@ client.on('interactionCreate', async (interaction) => {
                 }
 
                 // Save to your Mac Mini's DB
-                await saveDB();
+                saveDB();
             }
         } catch (err) {
             console.error("❌ Command Error:", err);
@@ -3509,7 +3487,7 @@ client.on('messageCreate', async (message) => {
     if (!db.stats) db.stats = {};
     if (!db.stats[message.author.id]) db.stats[message.author.id] = { count: 0 };
     db.stats[message.author.id].count++;
-    if (db.stats[message.author.id].count % 10 === 0) await saveDB();
+    if (db.stats[message.author.id].count % 10 === 0) saveDB();
 
 
     // 2. AFK System
@@ -3518,7 +3496,7 @@ client.on('messageCreate', async (message) => {
     // --- Part A: Returning from AFK ---
     if (db.afk[message.author.id]) {
         delete db.afk[message.author.id];
-        await saveDB();
+        saveDB();
 
         // Robust Nickname Restore
         if (message.member.manageable && message.member.displayName.startsWith('[AFK]')) {
@@ -3609,7 +3587,7 @@ setInterval(async () => {
         }
     }
 
-    if (changed) await saveDB();
+    if (changed) saveDB();
 }, 5000);
 
 
@@ -3710,7 +3688,7 @@ setInterval(async () => {
     if (dueReminders.length > 0) {
         // 1. Remove them from DB IMMEDIATELY to prevent double-reminding on lag
         db.reminders = db.reminders.filter(r => r.expiresAt > now);
-        await saveDB();
+        saveDB();
 
         for (const reminder of dueReminders) {
             try {
@@ -3736,17 +3714,8 @@ setInterval(async () => {
 
 process.on('SIGINT', () => {
     console.log("💾 SIGINT received. Syncing database...");
-    
-    // Call the function and chain the exit
-    saveDB()
-        .then(() => {
-            console.log("💾 Sync complete. Shutting down.");
-            process.exit(0);
-        })
-        .catch((err) => {
-            console.error("❌ Failed to save during shutdown:", err);
-            process.exit(1);
-        });
+    saveDB();
+    process.exit();
 });
 
 // -- WELCOME & GOODBYE MODULE ---
