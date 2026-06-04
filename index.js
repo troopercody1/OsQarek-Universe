@@ -72,6 +72,16 @@ app.get('/login', (req, res) => {
     res.render('login', { error: req.query.error || null, stats: { botName: client?.user?.username || "OsQarek’s Universe" } });
 });
 
+app.get('/logout', (req, res) => {
+    req.session.destroy((err) => {
+        if (err) {
+            console.error("Session destruction error:", err);
+            return res.status(500).send("Logout failed");
+        }
+        res.redirect('/login');
+    });
+});
+
 app.get('/auth/discord', (req, res) => {
     const params = new URLSearchParams({ client_id: process.env.CLIENT_ID, redirect_uri: process.env.DASHBOARD_CALLBACK_URL, response_type: 'code', scope: 'identify guilds.members.read' });
     res.redirect(`https://discord.com/api/oauth2/authorize?${params.toString()}`);
