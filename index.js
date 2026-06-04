@@ -19,6 +19,20 @@ let badWordsFile = require('./badwords.js');
 process.on('uncaughtException', (err) => console.error('CRITICAL DASHBOARD ERROR:', err));
 process.on('unhandledRejection', (reason, promise) => console.error('Unhandled Promise Rejection:', reason));
 
+const { Redis } = require('@upstash/redis');
+
+// Initialize Redis only if the environment variables exist
+let redis;
+if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    redis = new Redis({
+        url: process.env.UPSTASH_REDIS_REST_URL,
+        token: process.env.UPSTASH_REDIS_REST_TOKEN,
+    });
+    console.log("✅ Upstash Redis client initialized.");
+} else {
+    console.warn("⚠️ Upstash credentials missing. Falling back to local file.");
+}
+
 // -- ADVANCED INTERACTIVE DASHBOARD WITH DISCORD OAUTH2 (RENDER PATCHED) --
 const session = require('express-session');
 
