@@ -3729,8 +3729,17 @@ setInterval(async () => {
 
 process.on('SIGINT', () => {
     console.log("💾 SIGINT received. Syncing database...");
-    await saveDB();
-    process.exit();
+    
+    // Call the function and chain the exit
+    saveDB()
+        .then(() => {
+            console.log("💾 Sync complete. Shutting down.");
+            process.exit(0);
+        })
+        .catch((err) => {
+            console.error("❌ Failed to save during shutdown:", err);
+            process.exit(1);
+        });
 });
 
 // -- WELCOME & GOODBYE MODULE ---
