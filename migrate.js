@@ -43,26 +43,35 @@ async function migrate() {
         }
         console.log("User migration complete.");
 
-       // 2. Migrate Cases
+        // 2. Migrate Cases (In Batches to prevent memory/connection issues)
         if (data.cases && data.cases.length > 0) {
-            console.log(`Migrating ${data.cases.length} cases...`);
-            for (let i = 0; i < data.cases.length; i++) {
+            console.log(`Starting migration of ${data.cases.length} cases...`);
+            const batchSize = 50;
+            for (let i = 0; i < data.cases.length; i += batchSize) {
+                const batch = data.cases.slice(i, i + batchSize);
+                console.log(`Processing batch ${i} to ${i + batch.length}...`);
+                
+                const ops = batch.map(caseDoc => ({
+                    updateOne: {
+                        filter: { id: caseDoc.id },
+                        update: { $set: caseDoc },
+                        upsert: true
+                    }
+                }));
+
                 try {
-                    await Case.updateOne(
-                        { id: data.cases[i].id },
-                        { $set: data.cases[i] },
-                        { upsert: true }
-                    );
-                } catch (caseErr) {
-                    // Log the EXACT case and the EXACT error
-                    console.error(`ERROR on case index ${i} (ID: ${data.cases[i].id}):`, caseErr);
-                    throw caseErr; // This will trigger the main catch block and exit
+                    await Case.bulkWrite(ops);
+                } catch (batchErr) {
+                    console.error(`FAILED AT BATCH STARTING AT INDEX ${i}:`, batchErr);
+                    throw batchErr;
                 }
             }
+            console.log("All cases processed successfully.");
         }
 
         console.log("Migration complete!");
         process.exit(0);
+
     } catch (err) {
         console.error("Migration failed:", err);
         process.exit(1);
