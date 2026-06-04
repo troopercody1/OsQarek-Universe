@@ -35,17 +35,11 @@ if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) 
 
 // -- ADVANCED INTERACTIVE DASHBOARD WITH DISCORD OAUTH2 (RENDER PATCHED) --
 const session = require('express-session');
-
-// --- FIX: Brevo API Setup (v5.0.4) ---
 const { BrevoClient } = require('@getbrevo/brevo');
 
-// Initialize the modern client
-const brevo = new BrevoClient({
-    apiKey: process.env.BREVO_API_KEY
-});
-
+// Initialize Brevo
+const brevo = new BrevoClient({ apiKey: process.env.BREVO_API_KEY });
 global.otpStore = {};
-// -----------------------------
 
 // CRASH PROTECTION
 process.on('uncaughtException', (err) => console.error('CRITICAL DASHBOARD ERROR:', err));
@@ -53,15 +47,24 @@ process.on('unhandledRejection', (reason, promise) => console.error('Unhandled P
 
 const PORT = process.env.PORT || 3000;
 
+// Helper to safely access client status
+const getClientStats = () => ({
+    botName: (typeof client !== 'undefined' && client.user) ? client.user.username : "OsQarek’s Universe",
+    botStatus: (typeof client !== 'undefined' && client.readyAt) ? "ONLINE" : "OFFLINE",
+    guildsCount: (typeof client !== 'undefined') ? client.guilds.cache.size : 0,
+    totalUsers: (typeof client !== 'undefined') ? client.users.cache.size : 0,
+    ping: (typeof client !== 'undefined') ? `${Math.round(client.ws.ping || 0)}ms` : "0ms"
+});
+
 async function safeSave() {
     try {
-        // Since we patched db.save() to be an async method, we await it
         await db.save();
         console.log("💾 Database synced via db.save().");
     } catch (e) {
         console.error("❌ Sync failed:", e.message);
     }
 }
+
 const ALLOWED_ROLES = ["850513944329191445", "1511810524818440243", "1256027411259326524", "850513087399329823", "801828933800296478", "772558550555295794"];
 
 app.use(session({
@@ -75,60 +78,34 @@ app.use(express.urlencoded({ extended: true }));
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
+// Maintenance Middleware
 app.use((req, res, next) => {
     const isMaintenance = db.settings?.maintenanceMode;
     const isAuthRoute = req.path.startsWith('/auth/') || req.path === '/login';
     const isAdmin = req.session?.user?.id === 'admin';
-
-    if (isMaintenance && !isAdmin && !isAuthRoute) {
-        // Pass the settings object so EJS can read maintenanceETA
-        return res.render('maintenance', { settings: db.settings });
-    }
-    
+    if (isMaintenance && !isAdmin && !isAuthRoute) return res.render('maintenance', { settings: db.settings });
     next();
 });
 
+// Logging
 global.botErrors = global.botErrors || [];
 global.botLogs = global.botLogs || [];
-
 const originalLog = console.log;
 const originalError = console.error;
-
-console.log = (...args) => {
-    const msg = args.join(' ');
-    global.botLogs.push({ time: new Date().toLocaleTimeString('en-GB'), text: msg });
-    if (global.botLogs.length > 100) global.botLogs.shift();
-    originalLog(...args);
-};
-
-console.error = (...args) => {
-    const msg = args.join(' ');
-    global.botErrors.push({ time: new Date().toLocaleTimeString('en-GB'), text: msg });
-    if (global.botErrors.length > 50) global.botErrors.shift();
-    originalError(...args);
-};
+console.log = (...args) => { global.botLogs.push({ time: new Date().toLocaleTimeString('en-GB'), text: args.join(' ') }); if (global.botLogs.length > 100) global.botLogs.shift(); originalLog(...args); };
+console.error = (...args) => { global.botErrors.push({ time: new Date().toLocaleTimeString('en-GB'), text: args.join(' ') }); if (global.botErrors.length > 50) global.botErrors.shift(); originalError(...args); };
 
 function checkAuth(req, res, next) {
     if (req.session && req.session.user && req.session.isHeadAdmin) return next();
     res.redirect('/login');
 }
 
-// ==========================================
-// AUTH ROUTES (SPLIT LOGIN SYSTEM)
-// ==========================================
+// --- ROUTES ---
 app.get('/login', (req, res) => {
     if (req.session && req.session.user && req.session.isHeadAdmin) return res.redirect('/');
-    
-    // Check if client and client.user exist before accessing username
-    const botName = (typeof client !== 'undefined' && client.user) ? client.user.username : "OsQarek’s Universe";
-    
-    res.render('login', { 
-        error: req.query.error || null, 
-        stats: { botName: botName } 
-    });
+    res.render('login', { error: req.query.error || null, stats: getClientStats() });
 });
 
-// --- PATH 1: STANDARD DISCORD LOGIN ---
 app.get('/auth/discord', (req, res) => {
     const params = new URLSearchParams({ client_id: process.env.CLIENT_ID, redirect_uri: process.env.DASHBOARD_CALLBACK_URL, response_type: 'code', scope: 'identify guilds.members.read' });
     res.redirect(`https://discord.com/api/oauth2/authorize?${params.toString()}`);
@@ -141,187 +118,74 @@ app.get('/auth/callback', async (req, res) => {
         const tokenResponse = await axios.post('https://discord.com/api/oauth2/token', new URLSearchParams({
             client_id: process.env.CLIENT_ID, client_secret: process.env.DISCORD_CLIENT_SECRET, grant_type: 'authorization_code', code: code, redirect_uri: process.env.DASHBOARD_CALLBACK_URL,
         }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
-        
         const userResponse = await axios.get('https://discord.com/api/users/@me', { headers: { Authorization: `Bearer ${tokenResponse.data.access_token}` } });
         const guildMember = await axios.get(`https://discord.com/api/users/@me/guilds/${process.env.GUILD_ID}/member`, { headers: { Authorization: `Bearer ${tokenResponse.data.access_token}` } });
-        
         if (!guildMember.data.roles.some(r => ALLOWED_ROLES.includes(r))) return res.redirect('/login?error=Unauthorized');
-        
-        // Grant standard access
         req.session.user = userResponse.data;
         req.session.isHeadAdmin = true;
         res.redirect('/');
     } catch (err) { res.redirect('/login?error=Authentication+failed'); }
 });
 
-// --- PATH 2: ADMINISTRATOR OTP LOGIN ---
-app.get('/auth/admin', (req, res) => {
-    // Renders the OTP page without needing Discord login
-    res.render('otp', { error: req.query.error || null, msg: req.query.msg || null });
-});
-
+app.get('/auth/admin', (req, res) => res.render('otp', { error: req.query.error || null, msg: req.query.msg || null }));
 app.post('/auth/send-otp', async (req, res) => {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     global.otpStore['admin_login'] = { otp, expires: Date.now() + 300000 };
-
     try {
-        // Use the new client structure
-        await brevo.transactionalEmails.sendTransacEmail({
-            subject: "Dashboard Security Code",
-            htmlContent: `<p>Your Master Admin login code is: <strong>${otp}</strong>. This code expires in 5 minutes.</p>`,
-            sender: { name: "OsQarek Universe", email: "osqarekuniverse@gmail.com" },
-            to: [{ email: process.env.ADMIN_EMAIL }]
-        });
-        
-        res.redirect('/auth/admin?msg=Code+Sent+To+Master+Email');
-    } catch (e) {
-        console.error("Brevo API Error:", e.body || e);
-        res.redirect('/auth/admin?error=Failed+to+send+email');
-    }
+        await brevo.transactionalEmails.sendTransacEmail({ subject: "Dashboard Security Code", htmlContent: `<p>Your code is: <strong>${otp}</strong>.</p>`, sender: { name: "OsQarek Universe", email: "osqarekuniverse@gmail.com" }, to: [{ email: process.env.ADMIN_EMAIL }] });
+        res.redirect('/auth/admin?msg=Code+Sent');
+    } catch (e) { res.redirect('/auth/admin?error=Failed+to+send'); }
 });
 
 app.post('/auth/verify-otp', (req, res) => {
     const storedData = global.otpStore['admin_login'];
-    
     if (storedData && storedData.otp === req.body.otp && Date.now() < storedData.expires) {
-        // Success! Grant master admin session
-        req.session.user = { id: 'admin', username: 'Master Admin', avatar: null };
+        req.session.user = { id: 'admin', username: 'Master Admin' };
         req.session.isHeadAdmin = true;
-        
-        delete global.otpStore['admin_login']; // Clean up
-        
-        // Redirect to the settings page instead of the home page
-        res.redirect('/settings'); 
-    } else {
-        res.redirect('/auth/admin?error=Invalid+or+Expired+Code');
-    }
+        delete global.otpStore['admin_login'];
+        res.redirect('/settings');
+    } else { res.redirect('/auth/admin?error=Invalid+or+Expired'); }
 });
 
 app.get('/settings', (req, res) => {
-    // Only allow access if the session is the OTP admin session
-    if (req.session.user && req.session.user.id === 'admin') {
-        res.render('settings', {
-            user: req.session.user,
-            settings: db.settings || { prefix: "!", welcomeChannel: "...", goodbyeChannel: "...", maintenanceMode: false },
-            bannedWords: db.bannedWords || []
-        });
-    } else {
-        // Deny access if they aren't the OTP admin
-        res.status(403).send("<h1>403 Forbidden</h1><p>Access denied.</p>");
-    }
+    if (req.session.user?.id === 'admin') {
+        res.render('settings', { user: req.session.user, settings: db.settings || {}, bannedWords: db.bannedWords || [] });
+    } else res.status(403).send("Forbidden");
 });
 
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
-// ==========================================
 
-// MAIN DASHBOARD ROUTE
+// Main Dashboard
 app.get('/', checkAuth, async (req, res) => {
-    const guild = client.guilds.cache.get(process.env.GUILD_ID);
-    
-    let members = [];
-    let emojis = []; 
-    
+    const guild = (typeof client !== 'undefined') ? client.guilds.cache.get(process.env.GUILD_ID) : null;
+    let members = [], emojis = [];
     if (guild) {
         const fetched = await guild.members.fetch().catch(() => guild.members.cache);
         members = Array.from(fetched.values()).filter(m => !(db.reviewedUsers || []).includes(m.id));
-        
-        emojis = guild.emojis.cache.map(e => ({ 
-            id: e.id, 
-            name: e.name, 
-            toString: e.toString() 
-        }));
+        emojis = guild.emojis.cache.map(e => ({ id: e.id, name: e.name, toString: e.toString() }));
     }
-
-    res.render('index', { 
-        stats: { 
-            botName: client.user?.username || "Dashboard", 
-            botStatus: client.readyAt ? "ONLINE" : "OFFLINE", 
-            guildsCount: client.guilds.cache.size, 
-            totalUsers: client.users.cache.size, 
-            ping: `${Math.round(client.ws.ping || 0)}ms` 
-        },
-        members,
-        emojis, // 3. Pass it to the view
-        cases: db.cases || [],
-        settings: db.settings || { prefix: "!", welcomeChannel: "...", goodbyeChannel: "..." },
-        reactionRoles: db.reactionRoles || [],
-        bannedWords: db.bannedWords || [],
-        user: req.session.user,
-        logs: global.botLogs || [],
-        errors: global.botErrors || []
-    });
-});
-// SETTINGS & FEATURES ROUTES
-app.post('/update-settings', checkAuth, async (req, res) => {
-    db.settings = { prefix: req.body.prefix, welcomeChannel: req.body.welcomeChannel, goodbyeChannel: req.body.goodbyeChannel };
-    await safeSave();
-    res.redirect('/');
+    res.render('index', { stats: getClientStats(), members, emojis, cases: db.cases || [], settings: db.settings || {}, reactionRoles: db.reactionRoles || [], bannedWords: db.bannedWords || [], user: req.session.user, logs: global.botLogs, errors: global.botErrors });
 });
 
-app.post('/review-risk/:userId', checkAuth, async (req, res) => {
-    const userId = req.params.userId;
-    
-    if (!db.reviewedUsers) db.reviewedUsers = [];
-    
-    if (!db.reviewedUsers.includes(userId)) {
-        db.reviewedUsers.push(userId);
-        await safeSave(); 
-    }
-    
-    console.log(`[RISK-MANAGER] Admin reviewed user: ${userId}`);
-    res.redirect('/#risk-manager');
-});
+// Settings Posts... (All your app.post routes go here)
+app.post('/update-settings', checkAuth, async (req, res) => { db.settings = { prefix: req.body.prefix, welcomeChannel: req.body.welcomeChannel, goodbyeChannel: req.body.goodbyeChannel }; await safeSave(); res.redirect('/'); });
+app.post('/review-risk/:userId', checkAuth, async (req, res) => { if (!db.reviewedUsers) db.reviewedUsers = []; if (!db.reviewedUsers.includes(req.params.userId)) { db.reviewedUsers.push(req.params.userId); await safeSave(); } res.redirect('/#risk-manager'); });
+app.post('/add-reaction-role', checkAuth, async (req, res) => { if (!db.reactionRoles) db.reactionRoles = []; db.reactionRoles.push({ emoji: req.body.emoji, roleId: req.body.roleId, messageId: req.body.messageId }); await safeSave(); res.redirect('/'); });
+app.post('/banned-words/add', checkAuth, async (req, res) => { if (!db.bannedWords) db.bannedWords = []; if (!db.bannedWords.includes(req.body.word)) { db.bannedWords.push(req.body.word); await safeSave(); } res.redirect('/'); });
+app.post('/settings/toggle-maintenance', async (req, res) => { if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden"); if (!db.settings) db.settings = { maintenanceMode: false }; db.settings.maintenanceMode = !db.settings.maintenanceMode; db.settings.maintenanceETA = req.body.eta || "TBD"; await safeSave(); res.redirect('/settings'); });
 
-app.post('/add-reaction-role', checkAuth, async (req, res) => {
-    if (!db.reactionRoles) db.reactionRoles = [];
-    db.reactionRoles.push({ emoji: req.body.emoji, roleId: req.body.roleId, messageId: req.body.messageId });
-    await safeSave();
-    res.redirect('/');
-});
-
-app.post('/banned-words/add', checkAuth, async (req, res) => {
-    if (!db.bannedWords) db.bannedWords = [];
-    if (!db.bannedWords.includes(req.body.word)) { 
-        db.bannedWords.push(req.body.word); 
-        await safeSave(); 
-    }
-    res.redirect('/');
-});
-
-app.post('/settings/toggle-maintenance', async (req, res) => {
-    if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
-
-    // Initialize if undefined
-    if (!db.settings) {
-        db.settings = { prefix: "!", welcomeChannel: "...", goodbyeChannel: "...", maintenanceMode: false, maintenanceETA: "" };
-    }
-
-    // Toggle the mode
-    db.settings.maintenanceMode = !db.settings.maintenanceMode;
-    
-    // Update ETA only if provided, otherwise default to "TBD"
-    db.settings.maintenanceETA = req.body.eta || "TBD";
-    
-    await safeSave();
-    res.redirect('/settings');
-});
-
-// --- LOAD DB FROM REDIS AT STARTUP ---
-client.once('ready', async () => {
-    if (typeof redis !== 'undefined') {
-        try {
-            const remoteData = await redis.get('bot_db');
-            if (remoteData) {
-                Object.assign(db, remoteData);
-                console.log("✅ Database synced from Upstash Redis.");
-            } else {
-                console.log("ℹ️ No remote database found, using defaults.");
-            }
-        } catch (err) {
-            console.error("❌ Failed to pull initial DB from Redis:", err.message);
+// --- STARTUP LOGIC ---
+// Ensure this file is placed in your index.js AFTER client.login() or after client is defined.
+if (typeof client !== 'undefined') {
+    client.once('ready', async () => {
+        if (typeof redis !== 'undefined') {
+            try {
+                const remoteData = await redis.get('bot_db');
+                if (remoteData) { Object.assign(db, remoteData); console.log("✅ Database synced from Upstash Redis."); }
+            } catch (err) { console.error("❌ Redis sync failed:", err.message); }
         }
-    }
-});
+    });
+}
 
 app.listen(PORT, '0.0.0.0', () => console.log(`🌐 Engine Online on Port ${PORT}`));
 
