@@ -29,7 +29,7 @@ if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) 
 global.otpStore = {};
 global.botErrors = global.botErrors || [];
 global.botLogs = global.botLogs || [];
-global.db = global.db || { settings: {}, reviewedUsers: [], reactionRoles: [], bannedWords: [], cases: [] };
+global.db = global.db || { settings: {}, reviewedUsers: [], reactionRoles: [], bannedWords: [], cases: [], lockedChannels: [] };
 
 // Error Handling
 process.on('uncaughtException', (err) => console.error('CRITICAL DASHBOARD ERROR:', err));
@@ -2660,11 +2660,43 @@ client.on('interactionCreate', async (interaction) => {
                         break;
 
                     case 'lockdown':
-                        if (!isAtLeastAdmin) return interaction.editReply("❌ You need **Admin+** to use this.");
-                        const status = options.getBoolean('status');
-                        await interaction.channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: !status });
-                        logAction(guild, status ? '🔒 Lockdown' : '🔓 Unlock', `**Channel:** ${interaction.channel.name}\n**Moderator:** ${user.tag}`, 0xE74C3C);
-                        return interaction.editReply(status ? `🔒 Channel locked.` : `🔓 Channel unlocked.`);
+    if (!isAtLeastAdmin) return interaction.editReply("❌ You need **Admin+** to use this.");
+    const status = options.getBoolean('status');
+    const guild = interaction.guild;
+    const everyoneRole = guild.roles.everyone;
+
+    if (status) {
+        // LOCKDOWN: Iterate all text channels
+        const channels = guild.channels.cache.filter(c => c.isTextBased());
+        db.lockedChannels = []; // Reset tracking list
+
+        for (const [id, channel] of channels) {
+            try {
+                // Check if already locked to avoid unnecessary API calls
+                if (channel.permissionsFor(everyoneRole).has(PermissionFlagsBits.SendMessages)) {
+                    await channel.permissionOverwrites.edit(everyoneRole, { SendMessages: false });
+                    db.lockedChannels.push(id);
+                }
+            } catch (e) { console.error(`Failed to lock ${channel.name}:`, e); }
+        }
+        await safeSave();
+        logAction(guild, '🔒 Full Server Lockdown', `Moderator: ${user.tag}`, 0xE74C3C);
+        return interaction.editReply(`🔒 Lockdown active. All ${db.lockedChannels.length} channels locked.`);
+    } else {
+        // UNLOCK: Only unlock channels that were in our lockedChannels list
+        let count = 0;
+        for (const id of db.lockedChannels) {
+            const channel = guild.channels.cache.get(id);
+            if (channel) {
+                await channel.permissionOverwrites.edit(everyoneRole, { SendMessages: true });
+                count++;
+            }
+        }
+        db.lockedChannels = []; // Clear the list
+        await safeSave();
+        logAction(guild, '🔓 Lockdown Lifted', `Moderator: ${user.tag}`, 0x2ECC71);
+        return interaction.editReply(`🔓 Lockdown lifted. ${count} channels restored.`);
+    }
 
                     case 'dm':
                         if (!isAtLeastAdmin) return interaction.editReply("❌ You need **Admin+** to use this.");
