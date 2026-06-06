@@ -453,6 +453,7 @@ client.once('ready', async () => {
 });
 
 const queue = new Map();
+let stayInVC = false;
 const BANNED_WORDS = require('./badwords.js');
 let unsavedMessages = 0;
 let isTrial = false;
@@ -977,7 +978,7 @@ client.on('interactionCreate', async (interaction) => {
             }
             if (commandName === 'ignorechannel' && isAtLeastAdmin) {
                 // -- 1. Get the channel ID and ensure it is a String
-                const cid = String((options.getChannel('channel') || channel).id);
+                const cid = String((options.getChannel('channel') || interaction.channel).id);
 
                 // -- 2. Check if it's already in the list
                 const index = db.ignoredChannels.indexOf(cid);
@@ -1188,9 +1189,9 @@ client.on('interactionCreate', async (interaction) => {
                         const level = options.getNumber('level');
 
                         // Updated safety check to allow up to 1000%
-                        if (level < 0 || level > 1000000000000000000000000000000000000000000000000000000000000000) {
-                            return interaction.editReply("❌ Please provide a volume between 0 and 1000.");
-                        }
+                        if (level < 0 || level > 10000) {
+    return interaction.editReply("❌ Please provide a volume between 0 and 1000.");
+}
 
                         const volumeFactor = level / 100; // 1000 becomes 10.0
 
@@ -1490,7 +1491,7 @@ client.on('interactionCreate', async (interaction) => {
                 await db.save();
 
                 // 1. DM the Staff Member
-                try { await target.send({ embeds: [embed] }); } catch (e) { }
+                try { await target.send({ embeds: [embed] }); } catch (e) { console.log(`Could not DM ${target.tag}`); }
 
                 // 2. Private Staff Log
                 const staffLog = interaction.guild.channels.cache.get(STAFF_ONLY_LOG);
@@ -1746,7 +1747,7 @@ client.on('interactionCreate', async (interaction) => {
                 await interaction.editReply(`🎯 Starting quiz: **${name}**! Check the channel below.`);
 
                 let score = 0;
-                const filter = m => m.author.id === user.id;
+                const filter = m => m.author.id === interaction.user.id;
 
                 // Game Loop
                 for (const [index, q] of quizData.entries()) {
@@ -3531,10 +3532,10 @@ setInterval(async () => {
             const parts = loaData.duration.split(/[- :]/);
 
             // Ensure we actually have all date parts (Year, Month, Day, Hour, Minute)
-            if (parts.length < 5) {
-                console.log(`⚠️ Skipping malformed LOA duration for ${userId}: ${loaData.duration}`);
-                continue;
-            }
+            if (parts.length < 5 || isNaN(new Date(parts[0], parts[1] - 1, parts[2], parts[3], parts[4]).getTime())) {
+    console.log(`⚠️ Skipping malformed LOA duration for ${userId}`);
+    continue;
+}
 
             const expiryDate = new Date(parts[0], parts[1] - 1, parts[2], parts[3], parts[4]);
 
