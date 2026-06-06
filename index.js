@@ -3790,7 +3790,7 @@ client.on('guildMemberRemove', async (member) => {
         console.log("🎧 Play-DL initialized.");
 
         // Attempt login and catch the API error specifically
-        await client.login(process.env.DISCORD_TOKEN);
+        await client.login(process.env.TOKEN);
     } catch (err) {
         if (err.message.includes('503') || err.message.includes('Service Unavailable')) {
             console.error("⚠️ Discord API is down (503). Retrying is blocked by the outage.");
