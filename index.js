@@ -57,6 +57,28 @@ global.db = global.db || {
     customQuizzes: {}
 };
 
+global.db.save = async function() {
+    try {
+        if (typeof redis !== 'undefined') {
+            // Create a copy of the object, removing the 'save' function so we don't try to store it in Redis
+            const dataToSave = { ...this };
+            delete dataToSave.save; 
+            
+            await redis.set('bot_db', dataToSave);
+            console.log("💾 Database synced to Upstash.");
+        } else {
+            // Fallback to local file
+            const dataToSave = { ...this };
+            delete dataToSave.save;
+            
+            fs.writeFileSync('./database.json', JSON.stringify(dataToSave, null, 4));
+            console.log("💾 Database synced to local file.");
+        }
+    } catch (err) {
+        console.error("❌ Failed to save database:", err.message);
+    }
+};
+
 // Error Handling
 process.on('uncaughtException', (err) => console.error('CRITICAL DASHBOARD ERROR:', err));
 process.on('unhandledRejection', (reason, promise) => console.error('Unhandled Promise Rejection:', reason));
@@ -435,27 +457,6 @@ const BANNED_WORDS = require('./badwords.js');
 let unsavedMessages = 0;
 let isTrial = false;
 
-// --- DATABASE STARTS BELOW ---
-
-    // The save function is now a method INSIDE the db object
-    async save() {
-        try {
-            // Check if redis is defined in the global scope
-            if (typeof redis !== 'undefined') {
-                // Destructure 'save' to prevent trying to save the function itself to Redis
-                const { save, ...dataToSave } = this;
-                await redis.set('bot_db', dataToSave);
-                console.log("💾 Database synced to Upstash.");
-            } else {
-                // Fallback to local file if Redis isn't connected
-                fs.writeFileSync('./database.json', JSON.stringify(this, null, 4));
-                console.log("💾 Database synced to local file.");
-            }
-        } catch (err) {
-            console.error("❌ Failed to save database:", err.message);
-        }
-    }
-};
 
 // --- INITIAL LOAD ---
 try {
