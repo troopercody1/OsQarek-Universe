@@ -448,20 +448,27 @@ let db = {
     }
 };
 
-// --- INITIAL LOAD ---
-try {
-    const dbPath = './database.json';
-    if (fs.existsSync(dbPath)) {
-        const data = fs.readFileSync(dbPath, 'utf8');
-        if (data.trim().length > 0) {
-            // Merge loaded data into your existing db object
-            Object.assign(db, JSON.parse(data));
-            console.log("✅ Database Loaded.");
+// --- INITIAL LOAD FROM REDIS ---
+(async () => {
+    try {
+        if (redis) {
+            console.log("⏳ Loading database from Upstash...");
+            const remoteData = await redis.get('bot_db');
+            
+            if (remoteData) {
+                // Merge the Redis data into the existing structure
+                Object.assign(global.db, remoteData);
+                console.log("✅ Database successfully loaded from Upstash.");
+            } else {
+                console.log("ℹ️ No existing database found in Redis; starting with default empty state.");
+            }
+        } else {
+            console.warn("⚠️ Redis not configured! Running with memory-only storage.");
         }
+    } catch (e) {
+        console.error("❌ Redis Load Error:", e.message);
     }
-} catch (e) {
-    console.error("❌ DB Load Error:", e.message);
-}
+})();
 
 // --- LOGGING SYSTEM ---
 function logAction(guild, title, description, color = 0x00FF00) {
