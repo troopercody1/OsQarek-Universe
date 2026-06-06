@@ -29,55 +29,7 @@ if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) 
 global.otpStore = {};
 global.botErrors = global.botErrors || [];
 global.botLogs = global.botLogs || [];
-global.db = global.db || { 
-    // --- Dashboard & General Settings ---
-    settings: {}, 
-    reviewedUsers: [], 
-    reactionRoles: [], 
-    bannedWords: [], 
-    cases: [], 
-    lockedChannels: [], // Included for your new lockdown command
-    
-    // --- Bot & Moderation Features ---
-    offences: {},
-    staffStrikes: {},
-    notes: {},
-    ignoredChannels: [],
-    ignoredUsers: [], // Added for your firewall logic
-    modLogChannel: null,
-    chatLogChannel: null,
-    loaChannel: null,
-    disabledCommands: [],
-    afk: {},
-    loa: {},
-    modRoles: [],
-    reminders: [],
-    stats: {},
-    aiEnabled: true,
-    customQuizzes: {}
-};
-
-global.db.save = async function() {
-    try {
-        if (typeof redis !== 'undefined') {
-            // Create a copy of the object, removing the 'save' function so we don't try to store it in Redis
-            const dataToSave = { ...this };
-            delete dataToSave.save; 
-            
-            await redis.set('bot_db', dataToSave);
-            console.log("💾 Database synced to Upstash.");
-        } else {
-            // Fallback to local file
-            const dataToSave = { ...this };
-            delete dataToSave.save;
-            
-            fs.writeFileSync('./database.json', JSON.stringify(dataToSave, null, 4));
-            console.log("💾 Database synced to local file.");
-        }
-    } catch (err) {
-        console.error("❌ Failed to save database:", err.message);
-    }
-};
+global.db = global.db || { settings: {}, reviewedUsers: [], reactionRoles: [], bannedWords: [], cases: [] };
 
 // Error Handling
 process.on('uncaughtException', (err) => console.error('CRITICAL DASHBOARD ERROR:', err));
@@ -453,11 +405,49 @@ client.once('ready', async () => {
 });
 
 const queue = new Map();
-let stayInVC = false;
 const BANNED_WORDS = require('./badwords.js');
 let unsavedMessages = 0;
 let isTrial = false;
 
+// --- DATABASE STARTS BELOW ---
+let db = {
+    offences: {},
+    staffStrikes: {},
+    notes: {},
+    ignoredChannels: [],
+    cases: [],
+    modLogChannel: null,
+    chatLogChannel: null,
+    loaChannel: null,
+    disabledCommands: [],
+    afk: {},
+    loa: {},
+    modRoles: [],
+    reminders: [],
+    stats: {},
+    aiEnabled: true,
+    customQuizzes: {},
+    lockedChannels: [],
+
+    // The save function is now a method INSIDE the db object
+    async save() {
+        try {
+            // Check if redis is defined in the global scope
+            if (typeof redis !== 'undefined') {
+                // Destructure 'save' to prevent trying to save the function itself to Redis
+                const { save, ...dataToSave } = this;
+                await redis.set('bot_db', dataToSave);
+                console.log("💾 Database synced to Upstash.");
+            } else {
+                // Fallback to local file if Redis isn't connected
+                fs.writeFileSync('./database.json', JSON.stringify(this, null, 4));
+                console.log("💾 Database synced to local file.");
+            }
+        } catch (err) {
+            console.error("❌ Failed to save database:", err.message);
+        }
+    }
+};
 
 // --- INITIAL LOAD ---
 try {
@@ -978,7 +968,7 @@ client.on('interactionCreate', async (interaction) => {
             }
             if (commandName === 'ignorechannel' && isAtLeastAdmin) {
                 // -- 1. Get the channel ID and ensure it is a String
-                const cid = String((options.getChannel('channel') || interaction.channel).id);
+                const cid = String((options.getChannel('channel') || channel).id);
 
                 // -- 2. Check if it's already in the list
                 const index = db.ignoredChannels.indexOf(cid);
@@ -1189,9 +1179,9 @@ client.on('interactionCreate', async (interaction) => {
                         const level = options.getNumber('level');
 
                         // Updated safety check to allow up to 1000%
-                        if (level < 0 || level > 10000) {
-    return interaction.editReply("❌ Please provide a volume between 0 and 1000.");
-}
+                        if (level < 0 || level > 1000000000000000000000000000000000000000000000000000000000000000) {
+                            return interaction.editReply("❌ Please provide a volume between 0 and 1000.");
+                        }
 
                         const volumeFactor = level / 100; // 1000 becomes 10.0
 
@@ -1491,7 +1481,7 @@ client.on('interactionCreate', async (interaction) => {
                 await db.save();
 
                 // 1. DM the Staff Member
-                try { await target.send({ embeds: [embed] }); } catch (e) { console.log(`Could not DM ${target.tag}`); }
+                try { await target.send({ embeds: [embed] }); } catch (e) { }
 
                 // 2. Private Staff Log
                 const staffLog = interaction.guild.channels.cache.get(STAFF_ONLY_LOG);
@@ -1747,7 +1737,7 @@ client.on('interactionCreate', async (interaction) => {
                 await interaction.editReply(`🎯 Starting quiz: **${name}**! Check the channel below.`);
 
                 let score = 0;
-                const filter = m => m.author.id === interaction.user.id;
+                const filter = m => m.author.id === user.id;
 
                 // Game Loop
                 for (const [index, q] of quizData.entries()) {
@@ -3532,10 +3522,10 @@ setInterval(async () => {
             const parts = loaData.duration.split(/[- :]/);
 
             // Ensure we actually have all date parts (Year, Month, Day, Hour, Minute)
-            if (parts.length < 5 || isNaN(new Date(parts[0], parts[1] - 1, parts[2], parts[3], parts[4]).getTime())) {
-    console.log(`⚠️ Skipping malformed LOA duration for ${userId}`);
-    continue;
-}
+            if (parts.length < 5) {
+                console.log(`⚠️ Skipping malformed LOA duration for ${userId}: ${loaData.duration}`);
+                continue;
+            }
 
             const expiryDate = new Date(parts[0], parts[1] - 1, parts[2], parts[3], parts[4]);
 
@@ -3787,19 +3777,18 @@ client.on('guildMemberRemove', async (member) => {
 // --- BOT STARTUP ---
 (async () => {
     try {
-        console.log("⚙️ Starting initialization...");
         await setupPlayDL();
         console.log("🎧 Play-DL initialized.");
 
-        if (!process.env.TOKEN) {
-            console.error("❌ CRITICAL: process.env.TOKEN is undefined. Check Render Environment settings.");
-            return;
-        }
-
-        console.log("🔑 Token loaded, attempting login...");
+        // Attempt login and catch the API error specifically
         await client.login(process.env.TOKEN);
-        console.log("✅ Login command issued successfully.");
     } catch (err) {
-        console.error("❌ Startup Error Details:", err);
+        if (err.message.includes('503') || err.message.includes('Service Unavailable')) {
+            console.error("⚠️ Discord API is down (503). Retrying is blocked by the outage.");
+        } else {
+            console.error("❌ Startup failed:", err);
+        }
+        // Optional: process.exit(1) if you want it to stop, 
+        // or a setTimeout to retry once the API is back.
     }
 })();
