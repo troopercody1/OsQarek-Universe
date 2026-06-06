@@ -29,7 +29,33 @@ if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) 
 global.otpStore = {};
 global.botErrors = global.botErrors || [];
 global.botLogs = global.botLogs || [];
-global.db = global.db || { settings: {}, reviewedUsers: [], reactionRoles: [], bannedWords: [], cases: [], lockedChannels: [] };
+global.db = global.db || { 
+    // --- Dashboard & General Settings ---
+    settings: {}, 
+    reviewedUsers: [], 
+    reactionRoles: [], 
+    bannedWords: [], 
+    cases: [], 
+    lockedChannels: [], // Included for your new lockdown command
+    
+    // --- Bot & Moderation Features ---
+    offences: {},
+    staffStrikes: {},
+    notes: {},
+    ignoredChannels: [],
+    ignoredUsers: [], // Added for your firewall logic
+    modLogChannel: null,
+    chatLogChannel: null,
+    loaChannel: null,
+    disabledCommands: [],
+    afk: {},
+    loa: {},
+    modRoles: [],
+    reminders: [],
+    stats: {},
+    aiEnabled: true,
+    customQuizzes: {}
+};
 
 // Error Handling
 process.on('uncaughtException', (err) => console.error('CRITICAL DASHBOARD ERROR:', err));
@@ -410,23 +436,6 @@ let unsavedMessages = 0;
 let isTrial = false;
 
 // --- DATABASE STARTS BELOW ---
-let db = {
-    offences: {},
-    staffStrikes: {},
-    notes: {},
-    ignoredChannels: [],
-    cases: [],
-    modLogChannel: null,
-    chatLogChannel: null,
-    loaChannel: null,
-    disabledCommands: [],
-    afk: {},
-    loa: {},
-    modRoles: [],
-    reminders: [],
-    stats: {},
-    aiEnabled: true,
-    customQuizzes: {},
 
     // The save function is now a method INSIDE the db object
     async save() {
