@@ -70,6 +70,46 @@ async function getCachedMembers(guild, { ttl = 60000, force = false } = {}) {
     return fetched;
 }
 
+// --- CENTRAL EMBED FACTORY ---
+// Wraps EmbedBuilder with the bot's brand defaults (Neon Purple, timestamp,
+// standard footer) so every embed looks consistent without repeating setup.
+// Pass `client` for the default author icon, or set author: false to omit it.
+const BRAND_COLOR = '#5500FF'; // Neon Blue/Purple
+function createEmbed({
+    title,
+    description,
+    color = BRAND_COLOR,
+    footer,
+    author,       // string -> shown as author name with bot avatar; omit for no author block
+    client,       // needed to pull the bot's avatar for the author icon
+    timestamp = true,
+    fields,
+    thumbnail,
+    image,
+} = {}) {
+    const embed = new EmbedBuilder().setColor(color);
+
+    if (title) embed.setTitle(title);
+    if (description) embed.setDescription(description);
+    if (fields) embed.addFields(fields);
+    if (thumbnail) embed.setThumbnail(thumbnail);
+    if (image) embed.setImage(image);
+    if (timestamp) embed.setTimestamp();
+
+    if (author) {
+        embed.setAuthor({
+            name: author,
+            iconURL: client?.user?.displayAvatarURL?.(),
+        });
+    }
+
+    if (footer) {
+        embed.setFooter(typeof footer === 'string' ? { text: footer } : footer);
+    }
+
+    return embed;
+}
+
 // --- EXPRESS MIDDLEWARE ---
 app.use(session({
     secret: process.env.SESSION_SECRET || 'fallback-secret',
@@ -804,11 +844,12 @@ client.on('interactionCreate', async (interaction) => {
 
             // --- 3. SYSTEM & ADMIN COMMANDS ---
             if (commandName === 'help') {
-                const helpEmbed = new EmbedBuilder()
-                    .setTitle('🛡️ OsQarek\'s Universe | Command List')
-                    .setDescription('Navigate the Universe with the commands below. Permission levels apply.')
-                    .setThumbnail(client.user.displayAvatarURL())
-                    .addFields(
+                const helpEmbed = createEmbed({
+                    title: '🛡️ OsQarek\'s Universe | Command List',
+                    description: 'Navigate the Universe with the commands below. Permission levels apply.',
+                    thumbnail: client.user.displayAvatarURL(),
+                    footer: 'OsQarek\'s Universe',
+                    fields: [
                         {
                             name: '👤 Public & Fun',
                             value: '`ping`, `pfp`, `diceroll`, `randomletter`, `ship`, `osqareksocials`, `serverinfo`, `userinfo`, `afk`, `offences`, `random`, `reminder`, `joke`, `dadjoke`, `randomfact`, `cat`, `dog`, `coinflip`, `poll`, `latest-updates`,'
@@ -837,10 +878,8 @@ client.on('interactionCreate', async (interaction) => {
                             name: '👑 Owners',
                             value: '`strike remove`, `strike add`, `strikes`, `aitoggle`, `staff-reset`'
                         }
-                    )
-                    .setColor('#5500FF') // Neon Purple
-                    .setFooter({ text: 'OsQarek\'s Universe' })
-                    .setTimestamp();
+                    ],
+                });
 
                 await interaction.editReply({ embeds: [helpEmbed] });
             }
@@ -1047,16 +1086,17 @@ client.on('interactionCreate', async (interaction) => {
                         const song = serverQueue.songs[0];
 
                         // 2. Build the Now Playing Embed
-                        const embed = new EmbedBuilder()
-                            .setTitle("🎶 Now Playing")
-                            .setDescription(`**[${song.title}](${song.url})**`)
-                            .setThumbnail(song.thumbnail)
-                            .addFields(
+                        const embed = createEmbed({
+                            title: "🎶 Now Playing",
+                            description: `**[${song.title}](${song.url})**`,
+                            thumbnail: song.thumbnail,
+                            footer: `Requested by ${member.displayName}`,
+                            timestamp: false,
+                            fields: [
                                 { name: "👤 Artist", value: song.artist, inline: true },
                                 { name: "⏱️ Duration", value: formatDuration(song.duration), inline: true }
-                            )
-                            .setColor("#5500FF")
-                            .setFooter({ text: `Requested by ${member.displayName}` });
+                            ],
+                        });
 
                         // 3. Finalize the reply
                         try {
@@ -1128,11 +1168,12 @@ client.on('interactionCreate', async (interaction) => {
                                 return;
                             }
 
-                            const embed = new EmbedBuilder()
-                                .setTitle("🎧 Choose a SoundCloud Track")
-                                .setColor("#5500FF")
-                                .setDescription(results.map((r, i) => `**${i + 1}.** [${r.title}](${r.url})\n👤 *${r.artist}* • ⏱️ ${formatDuration(r.duration)}`).join("\n\n"))
-                                .setFooter({ text: "Select a track using the buttons below" });
+                            const embed = createEmbed({
+                                title: "🎧 Choose a SoundCloud Track",
+                                description: results.map((r, i) => `**${i + 1}.** [${r.title}](${r.url})\n👤 *${r.artist}* • ⏱️ ${formatDuration(r.duration)}`).join("\n\n"),
+                                footer: "Select a track using the buttons below",
+                                timestamp: false,
+                            });
 
                             const row = new ActionRowBuilder();
                             results.forEach((_, i) => {
@@ -1184,11 +1225,12 @@ client.on('interactionCreate', async (interaction) => {
                     case 'queue': {
                         if (!serverQueue || !serverQueue.songs.length) return interaction.editReply("📜 The queue is empty.");
                         const lines = serverQueue.songs.map((s, i) => `**${i === 0 ? "▶️" : i}.** [${s.title}](${s.url})`).slice(0, 20);
-                        const embed = new EmbedBuilder()
-                            .setTitle("📜 Current Queue")
-                            .setColor("#5500FF")
-                            .setDescription(lines.join("\n"))
-                            .setFooter({ text: `Total tracks: ${serverQueue.songs.length}` });
+                        const embed = createEmbed({
+                            title: "📜 Current Queue",
+                            description: lines.join("\n"),
+                            footer: `Total tracks: ${serverQueue.songs.length}`,
+                            timestamp: false,
+                        });
                         return interaction.editReply({ embeds: [embed] });
                     }
 
@@ -1304,12 +1346,11 @@ client.on('interactionCreate', async (interaction) => {
                 let failed = 0;
 
                 // Build the embed once (reused for all DMs)
-                const embed = new EmbedBuilder()
-                    .setTitle("📢 Staff Announcement")
-                    .setDescription(msg)
-                    .setColor("#5500FF")
-                    .setFooter({ text: `Sent by ${interaction.user.tag}` })
-                    .setTimestamp();
+                const embed = createEmbed({
+                    title: "📢 Staff Announcement",
+                    description: msg,
+                    footer: `Sent by ${interaction.user.tag}`,
+                });
 
                 for (const [, staff] of staffMembers) {
                     try {
@@ -1461,10 +1502,11 @@ client.on('interactionCreate', async (interaction) => {
                     ]
                 });
 
-                const summaryEmbed = new EmbedBuilder()
-                    .setTitle('🛰️ Channel Summary (Last 50 Msgs)')
-                    .setDescription(response.choices[0].message.content)
-                    .setColor('#5500FF');
+                const summaryEmbed = createEmbed({
+                    title: '🛰️ Channel Summary (Last 50 Msgs)',
+                    description: response.choices[0].message.content,
+                    timestamp: false,
+                });
 
                 await interaction.editReply({ embeds: [summaryEmbed] });
             }
@@ -1486,14 +1528,14 @@ client.on('interactionCreate', async (interaction) => {
                 // Switched from db.offences to db.staffStrikes
                 if (!db.staffStrikes[target.id]) db.staffStrikes[target.id] = 0;
 
-                let embed = new EmbedBuilder().setTimestamp();
+                let embed = createEmbed();
 
                 if (sub === 'add') {
                     db.staffStrikes[target.id] += 1;
                     const count = db.staffStrikes[target.id];
 
                     embed.setTitle('⚠️ Staff Strike Added')
-                        .setColor(count >= 3 ? '#FF0055' : '#5500FF')
+                        .setColor(count >= 3 ? '#FF0055' : BRAND_COLOR)
                         .setDescription(`**${target.user.tag}** now has **${count}/3** strikes.\n**Reason:** ${reason}`);
 
                     db.cases.push({ id: db.cases.length + 1, user: target.id, type: 'Staff Strike', reason, moderator: moderator.user.tag });
@@ -1529,11 +1571,11 @@ client.on('interactionCreate', async (interaction) => {
                 const target = interaction.options.getUser('target');
                 const strikeCount = db.staffStrikes[target.id] || 0;
 
-                const embed = new EmbedBuilder()
-                    .setTitle('📋 Staff Strike Record')
-                    .setDescription(`**${target.tag}** currently has **${strikeCount}** strike(s).`)
-                    .setColor(strikeCount >= 3 ? '#FF0055' : '#5500FF')
-                    .setTimestamp();
+                const embed = createEmbed({
+                    title: '📋 Staff Strike Record',
+                    description: `**${target.tag}** currently has **${strikeCount}** strike(s).`,
+                    color: strikeCount >= 3 ? '#FF0055' : BRAND_COLOR,
+                });
 
                 return interaction.editReply({ embeds: [embed] });
             }
@@ -1560,10 +1602,11 @@ client.on('interactionCreate', async (interaction) => {
             }
             if (commandName === 'pfp') {
                 const user = interaction.options.getUser('target') || interaction.user;
-                const pfpEmbed = new EmbedBuilder()
-                    .setTitle(`${user.username}'s Profile Picture`)
-                    .setImage(user.displayAvatarURL({ size: 1024, dynamic: true }))
-                    .setColor('#5500FF');
+                const pfpEmbed = createEmbed({
+                    title: `${user.username}'s Profile Picture`,
+                    image: user.displayAvatarURL({ size: 1024, dynamic: true }),
+                    timestamp: false,
+                });
                 await interaction.editReply({ embeds: [pfpEmbed] });
             }
             if (commandName === 'userignore') {
@@ -1636,33 +1679,33 @@ client.on('interactionCreate', async (interaction) => {
                             result += letters[Math.floor(Math.random() * letters.length)];
                         }
 
-                        const signalEmbed = new EmbedBuilder()
-                            .setTitle('🛰️ Incoming Transmission')
-                            .setDescription(`The universe sent a 3-letter signal: **${result}**`)
-                            .setColor('#5500FF')
-                            .setFooter({ text: "OsQarek's Universe • Signal Received" });
+                        const signalEmbed = createEmbed({
+                            title: '🛰️ Incoming Transmission',
+                            description: `The universe sent a 3-letter signal: **${result}**`,
+                            footer: "OsQarek's Universe • Signal Received",
+                            timestamp: false,
+                        });
 
                         return interaction.editReply({ embeds: [signalEmbed] });
                     }
                 }
             }
             if (commandName === 'osqareksocials') {
-                const socialEmbed = new EmbedBuilder()
-                    .setTitle('🔗 Official OsQarek Links')
-                    .setDescription('Stay connected with the OsQarek across all platforms!')
-                    .addFields(
+                const socialEmbed = createEmbed({
+                    title: '🔗 Official OsQarek Links',
+                    description: 'Stay connected with the OsQarek across all platforms!',
+                    thumbnail: client.user.displayAvatarURL(),
+                    footer: 'OsQarek\'s Universe • Official Socials',
+                    timestamp: false,
+                    fields: [
                         { name: '🎮 Roblox', value: '[Follow OsQarek on Roblox!](https://www.roblox.com/users/3232149484/profile?friendshipSourceType=PlayerSearch)', inline: true },
                         { name: '🏰 OsQarek\'s Universe', value: '[Play the Game](https://www.roblox.com/games/122256355143828/OsQareks-Universe)', inline: true },
                         { name: '📺 YouTube', value: '[Subscribe](https://www.youtube.com/channel/UCzbWsgIRlrg1yTzD1SwsBAw)', inline: true },
                         { name: '🐦 Twitter', value: '[Follow](https://x.com/OQarek)', inline: true },
                         { name: '📸 Instagram', value: '[Follow](https://www.instagram.com/oscarek2304/)', inline: true },
                         { name: '🎵 Spotify', value: '[Listen](https://open.spotify.com/artist/1pJNyBvcufHketSgMj3upF?si=2c403446d85648cc)', inline: true },
-
-
-                    )
-                    .setThumbnail(client.user.displayAvatarURL())
-                    .setColor('#5500FF')
-                    .setFooter({ text: 'OsQarek\'s Universe • Official Socials' });
+                    ],
+                });
 
                 await interaction.editReply({ embeds: [socialEmbed] });
             }
@@ -2290,12 +2333,10 @@ client.on('interactionCreate', async (interaction) => {
             }
             if (commandName === 'suggest') {
                 const idea = interaction.options.getString('idea');
-                const suggestEmbed = new EmbedBuilder()
-                    .setAuthor({ name: `Suggestion from ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() })
-                    .setDescription(`**Suggestion:**\n${idea}`)
-                    .setColor('#5500FF')
-                    .setFooter({ text: 'Vote with the reactions below!' })
-                    .setTimestamp();
+                const suggestEmbed = createEmbed({
+                    description: `**Suggestion:**\n${idea}`,
+                    footer: 'Vote with the reactions below!',
+                }).setAuthor({ name: `Suggestion from ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() });
 
                 const msg = await interaction.editReply({ embeds: [suggestEmbed], fetchReply: true });
                 await msg.react('🌌');
@@ -2313,11 +2354,11 @@ client.on('interactionCreate', async (interaction) => {
                 }
 
                 const lovePercent = Math.floor(Math.random() * 101);
-                const shipEmbed = new EmbedBuilder()
-                    .setTitle('💖 Universe Matchmaker')
-                    .setDescription(`**${u1.username}** & **${u2.username}**\n\n**Match:** ${lovePercent}%`)
-                    .setColor(lovePercent > 50 ? '#FF00FF' : '#5500FF')
-                    .setTimestamp();
+                const shipEmbed = createEmbed({
+                    title: '💖 Universe Matchmaker',
+                    description: `**${u1.username}** & **${u2.username}**\n\n**Match:** ${lovePercent}%`,
+                    color: lovePercent > 50 ? '#FF00FF' : BRAND_COLOR,
+                });
 
                 await interaction.editReply({ embeds: [shipEmbed] });
             }
@@ -2369,12 +2410,11 @@ client.on('interactionCreate', async (interaction) => {
                     return interaction.editReply("❌ Only higher-ups can distribute cosmic roles.");
                 }
 
-                const roleEmbed = new EmbedBuilder()
-                    .setTitle('🌌 Universe Role Assignment')
-                    .setDescription(text)
-                    .addFields({ name: 'Role', value: `${role}`, inline: true })
-                    .setColor('#5500FF')
-                    .setTimestamp();
+                const roleEmbed = createEmbed({
+                    title: '🌌 Universe Role Assignment',
+                    description: text,
+                    fields: [{ name: 'Role', value: `${role}`, inline: true }],
+                });
 
                 const row = new ActionRowBuilder().addComponents(
                     new ButtonBuilder()
@@ -3629,12 +3669,12 @@ client.on('messageCreate', async (message) => {
 
         const aiText = response.choices[0].message.content;
 
-        const aiEmbed = new EmbedBuilder()
-            .setAuthor({ name: 'Universe AI', iconURL: client.user.displayAvatarURL() })
-            .setDescription(aiText.substring(0, 4096))
-            .setColor('#5500FF') // Your signature Neon Blue/Purple
-            .setFooter({ text: `OsQarek's Universe • Requested by ${message.author.tag}` })
-            .setTimestamp();
+        const aiEmbed = createEmbed({
+            client,
+            author: 'Universe AI',
+            description: aiText.substring(0, 4096),
+            footer: `OsQarek's Universe • Requested by ${message.author.tag}`,
+        });
 
         await message.reply({ embeds: [aiEmbed] });
 
