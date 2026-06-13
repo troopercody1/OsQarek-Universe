@@ -116,7 +116,8 @@ const commands = [
                 type: 1,
                 options: [
                     { name: 'target', description: 'User to kick', type: 6, required: true },
-                    { name: 'reason', description: 'Reason for the kick', type: 3, required: false }
+                    { name: 'reason', description: 'Reason for the kick', type: 3, required: false },
+                    { name: 'evidence', description: 'Evidence (screenshot/attachment) — required', type: 11, required: true }
                 ]
             },
             {
@@ -142,7 +143,8 @@ const commands = [
                 type: 1,
                 options: [
                     { name: 'target', description: 'User to mute', type: 6, required: true },
-                    { name: 'minutes', description: 'Duration in minutes', type: 4, required: true }
+                    { name: 'minutes', description: 'Duration in minutes', type: 4, required: true },
+                    { name: 'evidence', description: 'Evidence (screenshot/attachment) — required', type: 11, required: true }
                 ]
             },
             {
@@ -302,6 +304,7 @@ const commands = [
         ]
     },
 
+    { name: 'announce', description: 'Send an announcement to a channel', options: [{ name: 'message', description: 'The announcement text', type: 3, required: true }, { name: 'channel', description: 'Target channel (defaults to current)', type: 7, required: false }] },
     {
         name: 'case',
         description: 'View case',
