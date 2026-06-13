@@ -537,6 +537,46 @@ let db = {
 })();
 
 // --- LOGGING SYSTEM ---
+// Sends a DM to the affected member (with evidence attached) and posts the
+// evidence to the mod log channel alongside the standard logAction embed.
+async function logActionWithEvidence(guild, targetUser, title, description, color, dmTitle, dmDescription, evidence) {
+    // 1. DM the member with the reason and evidence
+    try {
+        const dmEmbed = new EmbedBuilder()
+            .setTitle(dmTitle)
+            .setDescription(dmDescription)
+            .setColor(color)
+            .setTimestamp();
+
+        const dmPayload = { embeds: [dmEmbed] };
+        if (evidence) dmPayload.files = [evidence.url];
+
+        await targetUser.send(dmPayload);
+    } catch (err) {
+        console.error(`❌ Failed to DM ${targetUser.tag} for ${title}:`, err.message);
+    }
+
+    // 2. Post to the mod log channel, including the evidence attachment
+    try {
+        if (!db.modLogChannel) return;
+        const logChannel = guild.channels.cache.get(db.modLogChannel);
+        if (!logChannel) return;
+
+        const logEmbed = new EmbedBuilder()
+            .setTitle(title)
+            .setDescription(description)
+            .setColor(color)
+            .setTimestamp();
+
+        const logPayload = { embeds: [logEmbed] };
+        if (evidence) logPayload.files = [evidence.url];
+
+        await logChannel.send(logPayload);
+    } catch (err) {
+        console.error(`❌ Failed to send mod log for ${title}:`, err.message);
+    }
+}
+
 function logAction(guild, title, description, color = 0x00FF00) {
     try {
         if (!db.modLogChannel) return;
@@ -2684,12 +2724,21 @@ client.on('interactionCreate', async (interaction) => {
                 switch (subcommand) {
                     case 'kick':
                         if (!isMod) return interaction.editReply("❌ You need **Moderator+** to use this.");
-                        {
-                            const evidence = options.getAttachment('evidence');
-                            if (!evidence) return interaction.editReply("❌ Evidence (an attachment) is required to use `/mod kick`.");
-                        }
+                        const kickEvidence = options.getAttachment('evidence');
+                        if (!kickEvidence) return interaction.editReply("❌ Evidence (an attachment) is required to use `/mod kick`.");
+
+                        await logActionWithEvidence(
+                            guild,
+                            target,
+                            '👢 Kick',
+                            `**User:** ${target.tag}\n**Reason:** ${reason}\n**Moderator:** ${user.tag}`,
+                            0xFF4500,
+                            '👢 You have been kicked',
+                            `**Server:** ${guild.name}\n**Reason:** ${reason}\n**Moderator:** ${user.tag}`,
+                            kickEvidence
+                        );
+
                         await targetMember.kick(reason);
-                        logAction(guild, '👢 Kick', `**User:** ${target.tag}\n**Reason:** ${reason}\n**Moderator:** ${user.tag}`, 0xFF4500);
                         return interaction.editReply(`👢 Kicked ${target.tag}.`);
 
                     case 'ban':
@@ -2707,13 +2756,23 @@ client.on('interactionCreate', async (interaction) => {
 
                     case 'mute':
                         if (!isTrial) return interaction.editReply("❌ You need **Trial Moderator+** to use this.");
-                        {
-                            const evidence = options.getAttachment('evidence');
-                            if (!evidence) return interaction.editReply("❌ Evidence (an attachment) is required to use `/mod mute`.");
-                        }
+                        const muteEvidence = options.getAttachment('evidence');
+                        if (!muteEvidence) return interaction.editReply("❌ Evidence (an attachment) is required to use `/mod mute`.");
+
                         const minutes = options.getInteger('minutes');
                         await targetMember.timeout(minutes * 60 * 1000, reason);
-                        logAction(guild, '🔇 Mute', `**User:** ${target.tag}\n**Duration:** ${minutes}m\n**Moderator:** ${user.tag}`, 0x808080);
+
+                        await logActionWithEvidence(
+                            guild,
+                            target,
+                            '🔇 Mute',
+                            `**User:** ${target.tag}\n**Duration:** ${minutes}m\n**Moderator:** ${user.tag}\n**Reason:** ${reason}`,
+                            0x808080,
+                            '🔇 You have been muted',
+                            `**Server:** ${guild.name}\n**Duration:** ${minutes} minutes\n**Reason:** ${reason}\n**Moderator:** ${user.tag}`,
+                            muteEvidence
+                        );
+
                         return interaction.editReply(`🔇 Muted ${target.tag} for ${minutes} minutes.`);
 
                     case 'unmute':
