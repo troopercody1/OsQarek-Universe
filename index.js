@@ -29,7 +29,7 @@ if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) 
 global.otpStore = {};
 global.botErrors = global.botErrors || [];
 global.botLogs = global.botLogs || [];
-global.db = global.db || { settings: {}, reviewedUsers: [], reactionRoles: [], bannedWords: [], cases: [] };
+global.db = global.db || { settings: {}, reviewedUsers: [], reactionRoles: [], bannedWords: [], cases: [], dmThreads: {} };
 
 // Error Handling
 process.on('uncaughtException', (err) => console.error('CRITICAL DASHBOARD ERROR:', err));
@@ -277,7 +277,10 @@ const {
     ButtonStyle,
     Partials,
     ActivityType,
-    MessageFlags
+    MessageFlags,
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle
 } = require('discord.js');
 
 dayjs.extend(relativeTime);
@@ -455,7 +458,8 @@ client = new Client({
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildInvites,
-        GatewayIntentBits.GuildVoiceStates
+        GatewayIntentBits.GuildVoiceStates,
+        GatewayIntentBits.DirectMessages
     ],
     partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
@@ -493,6 +497,7 @@ let db = {
     stats: {},
     aiEnabled: true,
     customQuizzes: {},
+    dmThreads: {},
 
     // The save function is now a method INSIDE the db object
     async save() {
@@ -524,6 +529,7 @@ let db = {
             if (remoteData) {
                 // Merge the Redis data into the existing structure
                 Object.assign(global.db, remoteData);
+                if (!db.dmThreads) db.dmThreads = {};
                 console.log("✅ Database successfully loaded from Upstash.");
             } else {
                 console.log("ℹ️ No existing database found in Redis; starting with default empty state.");
@@ -847,7 +853,69 @@ client.on('interactionCreate', async (interaction) => {
 
             return interaction.update({ embeds: [updatedEmbed], components: [] });
         }
+
+        // DM MODMAIL REPLY
+        if (interaction.customId.startsWith('dmreply_')) {
+            const targetId = interaction.customId.replace('dmreply_', '');
+
+            const modal = new ModalBuilder()
+                .setCustomId(`dmreplymodal_${targetId}`)
+                .setTitle('Reply to DM');
+
+            const input = new TextInputBuilder()
+                .setCustomId('dmreply_content')
+                .setLabel('Your reply')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+                .setMaxLength(2000);
+
+            modal.addComponents(new ActionRowBuilder().addComponents(input));
+
+            return interaction.showModal(modal);
+        }
     } // End of Button Logic
+
+    // MODAL SUBMIT: DM MODMAIL REPLY
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('dmreplymodal_')) {
+        const targetId = interaction.customId.replace('dmreplymodal_', '');
+        const replyContent = interaction.fields.getTextInputValue('dmreply_content');
+
+        try {
+            const targetUser = await client.users.fetch(targetId);
+
+            const replyEmbed = new EmbedBuilder()
+                .setTitle('📬 Staff Reply')
+                .setDescription(replyContent)
+                .setColor(0x2ECC71)
+                .setTimestamp();
+
+            await targetUser.send({ embeds: [replyEmbed] });
+
+            // Confirm in the relay channel and re-attach a Reply button so the
+            // conversation can continue back and forth.
+            const confirmEmbed = new EmbedBuilder()
+                .setTitle('✅ Reply Sent')
+                .setDescription(replyContent)
+                .addFields({ name: 'To', value: `${targetUser.tag} (${targetUser.id})`, inline: false })
+                .setColor(0x2ECC71)
+                .setFooter({ text: `Sent by ${interaction.user.tag}` })
+                .setTimestamp();
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`dmreply_${targetId}`)
+                    .setLabel('Reply')
+                    .setStyle(ButtonStyle.Primary)
+            );
+
+            await interaction.reply({ embeds: [confirmEmbed], components: [row] });
+        } catch (err) {
+            console.error('❌ Failed to send DM reply:', err.message);
+            await interaction.reply({ content: `❌ Could not DM that user (DMs closed or blocked).`, ephemeral: true });
+        }
+        return;
+    }
+
 
     // 4. SLASH COMMAND HANDLER (Merged into main event)
     if (interaction.isChatInputCommand()) {
@@ -3706,16 +3774,62 @@ async function askAI(prompt, type = "default") {
     }
 }
 
+// --- DM MODMAIL RELAY ---
+// If a user DMs the bot, forward the message to the mod log channel with a
+// "Reply" button. Staff click Reply, type a response in the modal, and it
+// gets sent back to the user's DMs. This repeats indefinitely in both directions.
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
+    if (message.guild) return; // Only handle DMs here
+
+    if (!db.modLogChannel) {
+        return message.reply("⚠️ Sorry, this server hasn't set up a relay channel yet. Staff won't see your message.").catch(() => {});
+    }
+
+    const relayChannel = client.channels.cache.get(db.modLogChannel) || await client.channels.fetch(db.modLogChannel).catch(() => null);
+    if (!relayChannel) return;
+
+    const dmEmbed = new EmbedBuilder()
+        .setTitle('📨 New DM Received')
+        .setDescription(message.content || '*[No text content]*')
+        .addFields(
+            { name: 'From', value: `${message.author.tag} (${message.author.id})`, inline: false }
+        )
+        .setColor(0x5865F2)
+        .setThumbnail(message.author.displayAvatarURL())
+        .setTimestamp();
+
+    const files = message.attachments.size > 0
+        ? [...message.attachments.values()].map(a => a.url)
+        : [];
+
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`dmreply_${message.author.id}`)
+            .setLabel('Reply')
+            .setStyle(ButtonStyle.Primary)
+    );
+
+    try {
+        await relayChannel.send({ embeds: [dmEmbed], files, components: [row] });
+        await message.react('✅').catch(() => {});
+    } catch (err) {
+        console.error('❌ Failed to relay DM to staff:', err.message);
+    }
+});
+
+
+
+client.on('messageCreate', async (message) => {
+    if (message.author.bot) return;
+    if (!message.guild) return; // DMs are handled by the modmail relay above
 
     // 1. GLOBAL TOGGLE CHECK
     if (db.aiEnabled === false) return;
 
-    // 2. CONTEXT CHECK (Mention or DM)
+    // 2. CONTEXT CHECK (Mention only, since DMs are excluded above)
     const isMentioned = message.mentions.has(client.user);
-    const isDM = !message.guild;
-    if (!isMentioned && !isDM) return;
+    if (!isMentioned) return;
 
     const prompt = message.content.replace(`<@${client.user.id}>`, '').trim();
     if (!prompt) return message.reply("🌌 I'm listening. What's on your mind?");
