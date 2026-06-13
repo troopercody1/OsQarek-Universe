@@ -6,8 +6,6 @@ const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 const commands = [
     { name: 'help', description: 'List all available moderator commands' },
     { name: 'ping', description: 'Check the bot\'s latency' },
-   // { name: 'test', description: 'Test if all bot systems are operational' },
-    //  { name: 'random', description: 'Ping a random person in the server' },
     { name: 'addmod', description: 'Add a role to the moderator list', options: [{ name: 'role', description: 'The role to add', type: 8, required: true }] },
     { name: 'deletemod', description: 'Remove a role from the moderator list', options: [{ name: 'role', description: 'The role to remove', type: 8, required: true }] },
     { name: 'modlog', description: 'Set the moderation log channel', options: [{ name: 'channel', description: 'The channel', type: 7, required: true }] },
@@ -15,17 +13,6 @@ const commands = [
     { name: 'ignorechannel', description: 'Toggle ignoring a channel for logs', options: [{ name: 'channel', description: 'The channel', type: 7, required: true }] },
     { name: 'setloachannel', description: 'Set the LOA request channel', options: [{ name: 'channel', description: 'The channel', type: 7, required: true }] },
     { name: 'restart', description: 'Refreshes the bot session (Admin Only)' },
-    // { name: 'join', description: 'Join your voice channel' },
-    // { name: 'autoplay', description: 'Toggle autoplay mode' },
-    //  { name: '247', description: 'Toggle 24/7 mode (stay in VC)' },
-    //  { name: 'leave', description: 'Leave the voice channel' },
-    //  { name: 'play', description: 'Play music from SoundCloud', options: [{ name: 'query', description: 'The song name or URL', type: 3, required: true }] },
-    //  { name: 'skip', description: 'Skip the current song' },
-    //  { name: 'queue', description: 'View the music queue' },
-    //  { name: 'clearqueue', description: 'Clear the music queue' },
-    //  { name: 'pause', description: 'Pause the curent song' },
-    // { name: 'resume', description: 'Resume the paused song' },
-    //  { name: 'volume', description: 'Set volume (0-100)', options: [{ name: 'level', description: 'The volume level', type: 10, required: true }] },
     {
         name: 'music',
         description: 'OsQarek’s Universe Audio Suite',
@@ -45,25 +32,63 @@ const commands = [
         ]
     },
     { name: 'staffdm', description: 'Send a DM to all staff members', options: [{ name: 'message', description: 'The message to send', type: 3, required: true }] },
-    { name: 'nowplaying', description: 'View the current song' },
     { name: 'apply', description: 'Link to apply for staff' },
     { name: 'status', description: 'Set bot status', options: [{ name: 'preset', description: 'The status to set', type: 3, required: true, choices: [{ name: 'Universe', value: 'universe' }, { name: 'Update', value: 'update' }, { name: 'Help', value: 'help' }, { name: 'Expand', value: 'expand' }] }] },
-    { name: 'statequiz', description: 'Start 50 States trivia' },
-    { name: 'countryquiz', description: 'Start 50 Countries trivia' },
-    { name: 'canadaquiz', description: 'Start Canada trivia' },
-    { name: 'poll', description: 'Create a poll', options: [{ name: 'question', description: 'The question to ask', type: 3, required: true }] },
-    { name: 'quizcreate', description: 'Create quiz', options: [{ name: 'name', description: 'Quiz name', type: 3, required: true }, { name: 'question', description: 'The question', type: 3, required: true }, { name: 'answer', description: 'The answer', type: 3, required: true }] },
-    { name: 'quizlist', description: 'View quizzes' },
-    { name: 'startquiz', description: 'Start quiz', options: [{ name: 'name', description: 'The quiz name', type: 3, required: true }, { name: 'shuffle', description: 'Shuffle questions?', type: 5, required: false }] },
-    { name: 'quizban', description: 'Ban from quizzes', options: [{ name: 'target', description: 'User to ban', type: 6, required: true }, { name: 'status', description: 'True to ban', type: 5, required: true }] },
-    { name: 'delquiz', description: 'Delete quiz', options: [{ name: 'name', description: 'Quiz name to delete', type: 3, required: true }] },
-    // { name: 'joke', description: 'Random joke' },
-    // { name: 'dadjoke', description: 'Dad joke' },
-    ///  { name: 'coinflip', description: 'Flip coin' },
-    //  { name: 'cat', description: 'Cat image' },
-    //{ name: 'dog', description: 'Dog image' },
-    //   { name: 'randomfact', description: 'Random fact' }
-    //
+
+    // --- QUIZ SUITE ---
+    // Combines: statequiz, countryquiz, canadaquiz, quizcreate, quizlist, startquiz, quizban, delquiz
+    {
+        name: 'quiz',
+        description: 'OsQarek’s Universe Quiz Suite',
+        options: [
+            {
+                name: 'trivia',
+                description: 'Start a built-in trivia round',
+                type: 1,
+                options: [
+                    { name: 'type', description: 'Trivia category', type: 3, required: true, choices: [{ name: 'States', value: 'states' }, { name: 'Countries', value: 'countries' }, { name: 'Canada', value: 'canada' }] }
+                ]
+            },
+            {
+                name: 'create',
+                description: 'Create a custom quiz question',
+                type: 1,
+                options: [
+                    { name: 'name', description: 'Quiz name', type: 3, required: true },
+                    { name: 'question', description: 'The question', type: 3, required: true },
+                    { name: 'answer', description: 'The answer', type: 3, required: true }
+                ]
+            },
+            { name: 'list', description: 'View all custom quizzes', type: 1 },
+            {
+                name: 'start',
+                description: 'Start a custom quiz',
+                type: 1,
+                options: [
+                    { name: 'name', description: 'The quiz name', type: 3, required: true },
+                    { name: 'shuffle', description: 'Shuffle questions?', type: 5, required: false }
+                ]
+            },
+            {
+                name: 'ban',
+                description: 'Ban or unban a user from quizzes',
+                type: 1,
+                options: [
+                    { name: 'target', description: 'User to ban', type: 6, required: true },
+                    { name: 'status', description: 'True to ban', type: 5, required: true }
+                ]
+            },
+            {
+                name: 'delete',
+                description: 'Delete a custom quiz',
+                type: 1,
+                options: [
+                    { name: 'name', description: 'Quiz name to delete', type: 3, required: true }
+                ]
+            }
+        ]
+    },
+
     {
         name: 'fun',
         description: 'Fun and utility commands for the community',
@@ -78,19 +103,13 @@ const commands = [
             { name: 'randomletter', description: 'Get 3 random letters out of the alphebet', type: 1 }
         ]
     },
+
+    // --- MOD SUITE ---
+    // Note: 'warn' moved out into the new /warn suite below to avoid duplication.
     {
         name: 'mod',
         description: 'OsQarek’s Universe Moderation Suite',
         options: [
-            {
-                name: 'warn',
-                description: 'Issue a formal warning to a member',
-                type: 1,
-                options: [
-                    { name: 'target', description: 'User to warn', type: 6, required: true },
-                    { name: 'reason', description: 'Reason for the warning', type: 3, required: false }
-                ]
-            },
             {
                 name: 'kick',
                 description: 'Remove a member from the server',
@@ -170,52 +189,164 @@ const commands = [
             }
         ]
     },
-    //MOD   { name: 'warn', description: 'Warn user', options: [{ name: 'target', description: 'The user', type: 6, required: true }, { name: 'reason', description: 'Reason', type: 3, required: false }] },
-    //MOD   { name: 'ban', description: 'Ban user', options: [{ name: 'target', description: 'The user', type: 6, required: true }, { name: 'reason', description: 'Reason', type: 3, required: false }] },
-    //MOD{ name: 'kick', description: 'Kick user', options: [{ name: 'target', description: 'The user', type: 6, required: true }, { name: 'reason', description: 'Reason', type: 3, required: false }] },
-    //MOD { name: 'unban', description: 'Unban ID', options: [{ name: 'id', description: 'User ID', type: 3, required: true }] },
-    //MOD{ name: 'mute', description: 'Timeout user', options: [{ name: 'target', description: 'The user', type: 6, required: true }, { name: 'minutes', description: 'Duration', type: 4, required: true }] },
-    //MOD { name: 'purge', description: 'Delete messages', options: [{ name: 'amount', description: 'Number (1-100)', type: 4, required: true }] },
-    //MOD    { name: 'lockdown', description: 'Lock server', options: [{ name: 'status', description: 'True to lock', type: 5, required: true }] },
-    //MOD   { name: 'dm', description: 'DM a user', options: [{ name: 'target', description: 'The user', type: 6, required: true }, { name: 'message', description: 'The message', type: 3, required: true }] },
-    { name: 'announce', description: 'Announcement', options: [{ name: 'message', description: 'The text', type: 3, required: true }, { name: 'channel', description: 'The channel', type: 7, required: true }] },
-    { name: 'globalannounce', description: 'Global Announcement', options: [{ name: 'message', description: 'The text', type: 3, required: true }] },
-    { name: 'delwarn', description: 'Remove warning', options: [{ name: 'target', description: 'The user', type: 6, required: true }] },
-    { name: 'togglecommand', description: 'Toggle command', options: [{ name: 'command', description: 'Command name', type: 3, required: true }] },
-    { name: 'offences', description: 'Check offences', options: [{ name: 'target', description: 'The user', type: 6, required: false }] },
-    { name: 'warnings', description: 'Warning history', options: [{ name: 'target', description: 'The user', type: 6, required: true }] },
-    { name: 'notes', description: 'User notes', options: [{ name: 'target', description: 'The user', type: 6, required: true }] },
-    { name: 'addnote', description: 'Add note', options: [{ name: 'target', description: 'The user', type: 6, required: true }, { name: 'note', description: 'The text', type: 3, required: true }] },
-    { name: 'deletenote', description: 'Delete note', options: [{ name: 'target', description: 'The user', type: 6, required: true }, { name: 'index', description: 'Note number', type: 4, required: true }] },
-    { name: 'case', description: 'View case', options: [{ name: 'id', description: 'Case ID', type: 4, required: true }] },
-    { name: 'reason', description: 'Update reason', options: [{ name: 'id', description: 'Case ID', type: 4, required: true }, { name: 'new_reason', description: 'The text', type: 3, required: true }] },
-    { name: 'clearwarns', description: 'Clear all warns', options: [{ name: 'target', description: 'The user', type: 6, required: true }] },
-    { name: 'allstaffstats', description: 'Staff progress' },
+
+    // --- WARN SUITE ---
+    // Combines: warn (from mod), warnings, delwarn, clearwarns, offences
+    {
+        name: 'warn',
+        description: 'OsQarek’s Universe Warning Suite',
+        options: [
+            {
+                name: 'add',
+                description: 'Issue a formal warning to a member',
+                type: 1,
+                options: [
+                    { name: 'target', description: 'User to warn', type: 6, required: true },
+                    { name: 'reason', description: 'Reason for the warning', type: 3, required: false }
+                ]
+            },
+            {
+                name: 'view',
+                description: 'View warning history for a user',
+                type: 1,
+                options: [
+                    { name: 'target', description: 'The user', type: 6, required: true }
+                ]
+            },
+            {
+                name: 'delete',
+                description: 'Remove a single warning from a user',
+                type: 1,
+                options: [
+                    { name: 'target', description: 'The user', type: 6, required: true }
+                ]
+            },
+            {
+                name: 'clear',
+                description: 'Clear all warnings for a user',
+                type: 1,
+                options: [
+                    { name: 'target', description: 'The user', type: 6, required: true }
+                ]
+            },
+            {
+                name: 'offences',
+                description: 'Check a user\'s offence count',
+                type: 1,
+                options: [
+                    { name: 'target', description: 'The user', type: 6, required: false }
+                ]
+            }
+        ]
+    },
+
+    // --- NOTES SUITE ---
+    // Combines: notes, addnote, deletenote
+    {
+        name: 'notes',
+        description: 'OsQarek’s Universe Staff Notes',
+        options: [
+            {
+                name: 'view',
+                description: 'View notes for a user',
+                type: 1,
+                options: [
+                    { name: 'target', description: 'The user', type: 6, required: true }
+                ]
+            },
+            {
+                name: 'add',
+                description: 'Add a note to a user',
+                type: 1,
+                options: [
+                    { name: 'target', description: 'The user', type: 6, required: true },
+                    { name: 'note', description: 'The text', type: 3, required: true }
+                ]
+            },
+            {
+                name: 'delete',
+                description: 'Delete a note from a user',
+                type: 1,
+                options: [
+                    { name: 'target', description: 'The user', type: 6, required: true },
+                    { name: 'index', description: 'Note number', type: 4, required: true }
+                ]
+            }
+        ]
+    },
+
+    // --- LOA SUITE ---
+    // Combines: loa, loalist, endloa
+    {
+        name: 'loa',
+        description: 'OsQarek’s Universe LOA Suite',
+        options: [
+            {
+                name: 'request',
+                description: 'Request a leave of absence',
+                type: 1,
+                options: [
+                    { name: 'reason', description: 'Reason', type: 3, required: true },
+                    { name: 'duration', description: 'Until [YYYY-MM-DD]', type: 3, required: true }
+                ]
+            },
+            { name: 'list', description: 'View staff currently on LOA', type: 1 },
+            {
+                name: 'end',
+                description: 'End a leave of absence',
+                type: 1,
+                options: [
+                    { name: 'staff', description: 'The user', type: 6, required: false }
+                ]
+            }
+        ]
+    },
+
+    {
+        name: 'case',
+        description: 'View case',
+        options: [{ name: 'id', description: 'Case ID', type: 4, required: true }]
+    },
+    {
+        name: 'reason',
+        description: 'Update reason',
+        options: [{ name: 'id', description: 'Case ID', type: 4, required: true }, { name: 'new_reason', description: 'The text', type: 3, required: true }]
+    },
+
+    // --- STAFFSTATS SUITE ---
+    // Combines: staffstats, allstaffstats, staff-leaderboard
+    {
+        name: 'staffstats',
+        description: 'OsQarek’s Universe Staff Stats Suite',
+        options: [
+            {
+                name: 'view',
+                description: 'View stats for a staff member',
+                type: 1,
+                options: [
+                    { name: 'staff', description: 'User', type: 6, required: false }
+                ]
+            },
+            { name: 'all', description: 'View progress for all staff', type: 1 },
+            { name: 'leaderboard', description: 'View the weekly and all-time leadership stats', type: 1 }
+        ]
+    },
+
     { name: 'afk', description: 'Set AFK', options: [{ name: 'reason', description: 'Reason for AFK', type: 3, required: false }] },
-    { name: 'loa', description: 'Staff LOA', options: [{ name: 'reason', description: 'Reason', type: 3, required: true }, { name: 'duration', description: 'Until [YYYY-MM-DD]', type: 3, required: true }] },
-    { name: 'loalist', description: 'Staff on LOA' },
-    { name: 'endloa', description: 'End LOA', options: [{ name: 'staff', description: 'The user', type: 6, required: false }] },
     { name: 'slowmode', description: 'Set slowmode', options: [{ name: 'seconds', description: 'Duration', type: 4, required: true }] },
-    { name: 'unmute', description: 'Remove timeout', options: [{ name: 'target', description: 'The user', type: 6, required: true }] },
     { name: 'ask-rules', description: 'Ask the AI about rules', options: [{ name: 'question', description: 'Question', type: 3, required: true }] },
     { name: 'summarize', description: 'AI summarizes last 50 messages' },
     { name: 'suggest', description: 'Submit suggestion', options: [{ name: 'idea', description: 'Your idea', type: 3, required: true }] },
-    {
-        name: 'staff-leaderboard',
-        description: 'View the weekly and all-time leadership stats for the staff team'
-    },
+    { name: 'poll', description: 'Create a poll', options: [{ name: 'question', description: 'The question to ask', type: 3, required: true }] },
+
     {
         name: 'ping-all-staff',
         description: 'Ping all staff members and send them a DM',
         options: [
-            {
-                name: 'reason',
-                description: 'The reason for summoning staff',
-                type: 3, // 3 is the integer for STRING type
-                required: true
-            }
+            { name: 'reason', description: 'The reason for summoning staff', type: 3, required: true }
         ]
     },
+
     { name: 'ship', description: 'Matchmake users', options: [{ name: 'user1', description: 'User 1', type: 6 }, { name: 'user2', description: 'User 2', type: 6 }] },
     { name: 'messagereset', description: 'Wipe message counts' },
     { name: 'latest-update', description: 'Patch notes' },
@@ -232,12 +363,6 @@ const commands = [
     { name: 'aitoggle', description: 'Toggle AI chat', options: [{ name: 'status', description: 'ON/OFF', type: 5, required: true }] },
     { name: 'strike', description: 'Manage strikes', options: [{ name: 'add', description: 'Add strike', type: 1, options: [{ name: 'target', description: 'User', type: 6, required: true }, { name: 'reason', description: 'Reason', type: 3, required: true }] }, { name: 'remove', description: 'Remove strike', type: 1, options: [{ name: 'target', description: 'User', type: 6, required: true }, { name: 'reason', description: 'Reason', type: 3, required: true }] }] },
     { name: 'strikes', description: 'Check strike count', options: [{ name: 'target', description: 'User', type: 6, required: true }] },
-    // { name: 'nuke-server', description: 'April Fools Wipe' }, //ARIIL FOOLS
-    // { name: 'ban-prank', description: 'Fake ban notice', options: [{ name: 'target', description: 'Victim', type: 6, required: true }] }, //ARIIL FOOLS
-    //{ name: 'keyboard-fix', description: 'Fix typing lag' }, //ARIIL FOOLS
-    //{ name: 'reset-levels', description: 'Fake level reset', options: [{ name: 'target', description: 'Victim', type: 6 }] }, //ARIIL FOOLS
-    // { name: 'nerd-mode', description: 'AI correction mode', options: [{ name: 'target', description: 'Victim', type: 6, required: true }] }, //ARIIL FOOLS
-    //{ name: 'ping-all-staff', description: 'Emergency Ping' },  //APRIL FOOLS
     { name: 'userinfo', description: 'User details', options: [{ name: 'target', description: 'User', type: 6 }] },
     {
         name: 'nickname',
@@ -258,8 +383,6 @@ const commands = [
         ]
     },
     { name: 'serverinfo', description: 'Server details' },
-    { name: 'staffstats', description: 'View staff stats', options: [{ name: 'staff', description: 'User', type: 6 }] },
-    { name: 'softban', description: 'Softban user', options: [{ name: 'target', description: 'User', type: 6, required: true }, { name: 'reason', description: 'Reason', type: 3 }] },
     { name: 'reminder', description: 'Set reminder', options: [{ name: 'time', description: 'When', type: 3, required: true }, { name: 'task', description: 'What', type: 3, required: true }] }
 ];
 
