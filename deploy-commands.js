@@ -116,8 +116,8 @@ const commands = [
                 type: 1,
                 options: [
                     { name: 'target', description: 'User to kick', type: 6, required: true },
-                    { name: 'reason', description: 'Reason for the kick', type: 3, required: false },
-                    { name: 'evidence', description: 'Evidence (screenshot/attachment) — required', type: 11, required: true }
+                    { name: 'evidence', description: 'Evidence (screenshot/attachment) — required', type: 11, required: true },
+                    { name: 'reason', description: 'Reason for the kick', type: 3, required: false }
                 ]
             },
             {
