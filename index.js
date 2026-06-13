@@ -44,6 +44,32 @@ async function safeSave() {
     try { await db.save(); console.log("💾 Database synced."); } catch (e) { console.error("❌ Sync failed:", e.message); }
 }
 
+// --- DEBOUNCED SAVE ---
+// Coalesces rapid-fire db.save() calls into a single write a few seconds later.
+// Use for non-critical updates (stats, message logs etc). Use safeSave() directly
+// when the user needs an immediate guarantee the data was persisted (e.g. before redirects).
+let _saveTimeout = null;
+function queueSave(delayMs = 5000) {
+    if (_saveTimeout) return;
+    _saveTimeout = setTimeout(async () => {
+        _saveTimeout = null;
+        await safeSave();
+    }, delayMs);
+}
+
+// --- MEMBER CACHE ---
+// guild.members.fetch() hits the Discord API and can pull thousands of records.
+// Cache the result briefly so repeated calls (e.g. every dashboard page load)
+// don't re-fetch every time.
+const _memberCache = new Map(); // guildId -> { data, ts }
+async function getCachedMembers(guild, { ttl = 60000, force = false } = {}) {
+    const cached = _memberCache.get(guild.id);
+    if (!force && cached && Date.now() - cached.ts < ttl) return cached.data;
+    const fetched = await guild.members.fetch().catch(() => guild.members.cache);
+    _memberCache.set(guild.id, { data: fetched, ts: Date.now() });
+    return fetched;
+}
+
 // --- EXPRESS MIDDLEWARE ---
 app.use(session({
     secret: process.env.SESSION_SECRET || 'fallback-secret',
@@ -157,7 +183,7 @@ app.get('/', checkAuth, async (req, res) => {
     const guild = client?.guilds?.cache.get(process.env.GUILD_ID);
     let members = [], emojis = [];
     if (guild) {
-        const fetched = await guild.members.fetch().catch(() => guild.members.cache);
+        const fetched = await getCachedMembers(guild); // cached ~60s, avoids re-fetching full member list on every page load
         members = Array.from(fetched.values()).filter(m => !(db.reviewedUsers || []).includes(m.id));
         emojis = guild.emojis.cache.map(e => ({ id: e.id, name: e.name, toString: e.toString() }));
     }
@@ -3434,7 +3460,7 @@ client.on('messageCreate', async (message) => {
     if (!db.stats) db.stats = {};
     if (!db.stats[message.author.id]) db.stats[message.author.id] = { count: 0 };
     db.stats[message.author.id].count++;
-    if (db.stats[message.author.id].count % 10 === 0) await db.save();
+    if (db.stats[message.author.id].count % 10 === 0) queueSave();
 
 
     // 2. AFK System
