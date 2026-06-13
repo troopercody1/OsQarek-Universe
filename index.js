@@ -1369,8 +1369,7 @@ client.on('interactionCreate', async (interaction) => {
                 );
             }
 
-            // --- 3. MODERATION ---
-            if (commandName === 'staff-leaderboard') {
+            if (false && commandName === 'staff-leaderboard') {
                 // 1. Ensure the stats object exists
                 const stats = db.staffStats || {};
                 const entries = Object.entries(stats);
@@ -1404,8 +1403,7 @@ client.on('interactionCreate', async (interaction) => {
                     .setFooter({ text: 'Weekly Activity reset on Mondays' });
 
                 return await interaction.editReply({ embeds: [embed] });
-            } if (commandName === 'staff-leaderboard') {
-                // 1. Ensure the stats object exists
+            } if (false && commandName === 'staff-leaderboard') {
                 const stats = db.staffStats || {};
                 const entries = Object.entries(stats);
 
@@ -1644,7 +1642,7 @@ client.on('interactionCreate', async (interaction) => {
                         return interaction.editReply(data.joke);
                     }
 
-                    case 'randomfact': {
+                    case 'fact': {
                         const response = await fetch('https://uselessfacts.jsph.pl/random.json?language=en');
                         const data = await response.json();
                         return interaction.editReply(data.text);
@@ -1732,7 +1730,7 @@ client.on('interactionCreate', async (interaction) => {
                 await message.react('👎');
             }
 
-            if (commandName === 'quizcreate') {
+            if (commandName === 'quiz' && options.getSubcommand() === 'create') {
                 // 1. Check if user is banned from quizzes
                 if (db.quizBanned && db.quizBanned.includes(user.id)) {
                     return interaction.editReply("❌ You are banned from creating quizzes.");
@@ -1789,7 +1787,7 @@ client.on('interactionCreate', async (interaction) => {
                 }
             }
 
-            if (commandName === 'startquiz') {
+            if (commandName === 'quiz' && options.getSubcommand() === 'start') {
                 const name = options.getString('name').toLowerCase();
                 const shuffle = options.getBoolean('shuffle');
 
@@ -1853,7 +1851,7 @@ client.on('interactionCreate', async (interaction) => {
                 return interaction.channel.send({ embeds: [finalEmbed] });
             }
 
-            if (commandName === 'quizlist') {
+            if (commandName === 'quiz' && options.getSubcommand() === 'list') {
                 const quizzes = Object.keys(db.customQuizzes);
                 if (quizzes.length === 0) return interaction.editReply("📚 No custom quizzes found.");
 
@@ -1866,7 +1864,7 @@ client.on('interactionCreate', async (interaction) => {
                 return interaction.editReply({ embeds: [embed] });
             }
             // --- DELETE ENTIRE QUIZ ---
-            if (commandName === 'delquiz') {
+            if (commandName === 'quiz' && options.getSubcommand() === 'delete') {
                 const name = interaction.options.getString('name').toLowerCase();
                 if (!db.customQuizzes?.[name]) return interaction.editReply("❌ Quiz not found.");
 
@@ -1896,7 +1894,7 @@ client.on('interactionCreate', async (interaction) => {
                 const list = (db.notes[target.id] || []).map((n, i) => `**#${i + 1}** ${n.text} (${n.mod})`).join('\n') || "None";
                 return interaction.editReply({ embeds: [new EmbedBuilder().setTitle(`Notes: ${target.tag}`).setDescription(list)] });
             }
-            if (commandName === 'quizban') {
+            if (commandName === 'quiz' && options.getSubcommand() === 'ban') {
                 // Check for Admin permissions (or use your existing mod check logic)
                 if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
                     return interaction.editReply("❌ You don't have permission to use this command.");
@@ -1928,7 +1926,7 @@ client.on('interactionCreate', async (interaction) => {
                 const target = options.getUser('target') || user;
                 return interaction.editReply(`📊 ${target.tag} has **${db.offences[target.id] || 0}** offences.`);
             }
-            if (commandName === 'statequiz') {
+            if (commandName === 'quiz' && options.getSubcommand() === 'trivia' && options.getString('type') === 'states') {
                 let statePool = [
                     { name: 'Alabama', code: 'al', flag: 'https://flagcdn.com/w320/us-al.png' },
                     { name: 'Alaska', code: 'ak', flag: 'https://flagcdn.com/w320/us-ak.png' },
@@ -2072,7 +2070,7 @@ client.on('interactionCreate', async (interaction) => {
 
                 startNewRound();
             }
-            if (commandName === 'countryquiz') {
+            if (commandName === 'quiz' && options.getSubcommand() === 'trivia' && options.getString('type') === 'countries') {
                 let countryPool = [
                     // --- EASY / WELL KNOWN ---
                     { name: 'United States', code: 'us', flag: 'https://flagcdn.com/w320/us.png' },
@@ -2216,7 +2214,7 @@ client.on('interactionCreate', async (interaction) => {
 
                 startNewRound();
             }
-            if (commandName === 'canadaquiz') {
+            if (commandName === 'quiz' && options.getSubcommand() === 'trivia' && options.getString('type') === 'canada') {
                 let canadaPool = [
                     { name: 'Ontario', code: 'on', flag: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/88/Flag_of_Ontario.svg/320px-Flag_of_Ontario.svg.png' },
                     { name: 'Quebec', code: 'qc', flag: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5f/Flag_of_Quebec.svg/320px-Flag_of_Quebec.svg.png' },
@@ -2761,7 +2759,7 @@ client.on('interactionCreate', async (interaction) => {
             }
 
 
-            if (commandName === 'allstaffstats') {
+            if (commandName === 'staffstats' && options.getSubcommand() === 'all') {
                 // 1. Permission Check
                 const adminRoles = ['850513087399329823', '771423764511981599', '1511810524818440243'];
                 // Use interaction.member to ensure it's defined
@@ -2819,8 +2817,7 @@ client.on('interactionCreate', async (interaction) => {
                 return interaction.editReply({ embeds: [statsEmbed] });
             }
 
-            if (commandName === 'staffstats') {
-                // 1. Permission Check: Include all staff ranks defined in your system
+            if (commandName === 'staffstats' && options.getSubcommand() === 'view') {
                 const staffRoles = [
                     '826829037136510986', // Trial
                     '772558550555295794', // Mod
@@ -2898,7 +2895,7 @@ client.on('interactionCreate', async (interaction) => {
                 // 3. Inform the admin with a clear confirmation message
                 return interaction.editReply("✅ **Weekly message counts have been reset to 0 for all staff.**\n📅 The new tracking cycle has officially started.");
             }
-            if (commandName === 'staff-leaderboard') {
+            if (commandName === 'staffstats' && options.getSubcommand() === 'leaderboard') {
                 await interaction.deferReply();
 
                 // 1. Aggregate Staff Actions (Matching your "type" and "moderator" fields)
@@ -3108,8 +3105,7 @@ client.on('interactionCreate', async (interaction) => {
                 return interaction.editReply({ embeds: [embed] });
             }
 
-            if (commandName === 'loa') {
-                const reason = options.getString('reason');
+            if (commandName === 'loa' && options.getSubcommand() === 'request') {
                 const durationInput = options.getString('duration');
                 const dateRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
 
@@ -3145,7 +3141,7 @@ client.on('interactionCreate', async (interaction) => {
                 return interaction.editReply(`✅ Your LOA request has been submitted.`);
             }
 
-            if (commandName === 'loalist') {
+            if (commandName === 'loa' && options.getSubcommand() === 'list') {
                 const entries = Object.entries(db.loa || {});
                 if (entries.length === 0) return interaction.editReply({ content: "📋 No active staff LOAs." });
 
@@ -3165,7 +3161,7 @@ client.on('interactionCreate', async (interaction) => {
                 return interaction.editReply({ embeds: [embed] });
             }
 
-            if (commandName === 'endloa') {
+            if (commandName === 'loa' && options.getSubcommand() === 'end') {
                 const targetUser = options.getMember('staff') || member;
                 const isSelf = targetUser.id === user.id;
                 const roles = { admin: '850513087399329823', owner: '771423764511981599', coOwner: '1511810524818440243' };
