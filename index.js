@@ -1873,23 +1873,25 @@ client.on('interactionCreate', async (interaction) => {
                 await interaction.editReply(`🗑️ Entire quiz **${name}** and all its questions have been deleted.`);
             }
             // --- 4. RECORDS & NOTES ---
-            if (commandName === 'delwarn' && isAtLeastAdmin) {
+            if (commandName === 'warn' && options.getSubcommand() === 'delete') {
+                if (!isMod) return interaction.editReply("❌ You need **Moderator+** to use this.");
                 const target = options.getUser('target');
                 if (db.offences[target.id] > 0) { db.offences[target.id]--; await db.save(); }
                 logAction(guild, '➖ Warn Removed', `User: ${target.tag}\nMod: ${user.tag}`);
                 return interaction.editReply("✅ Removed 1 offence.");
             }
-            if (commandName === 'clearwarns' && isAtLeastAdmin) {
+            if (commandName === 'warn' && options.getSubcommand() === 'clear') {
+                if (!isAtLeastAdmin) return interaction.editReply("❌ You need **Administrator+** to use this.");
                 const target = options.getUser('target'); db.offences[target.id] = 0; await db.save();
                 logAction(guild, '♻️ Warns Cleared', `User: ${target.tag}\nMod: ${user.tag}`);
                 return interaction.editReply("✅ Cleared all offences.");
             }
-            if (commandName === 'addnote' && isTrial) {
+            if (commandName === 'notes' && options.getSubcommand() === 'add' && isTrial) {
                 const target = options.getUser('target'); if (!db.notes[target.id]) db.notes[target.id] = [];
                 db.notes[target.id].push({ text: options.getString('note'), mod: user.tag });
                 await db.save(); return interaction.editReply("✅ Note added.");
             }
-            if (commandName === 'notes' && isTrial) {
+            if (commandName === 'notes' && options.getSubcommand() === 'view' && isTrial) {
                 const target = options.getUser('target');
                 const list = (db.notes[target.id] || []).map((n, i) => `**#${i + 1}** ${n.text} (${n.mod})`).join('\n') || "None";
                 return interaction.editReply({ embeds: [new EmbedBuilder().setTitle(`Notes: ${target.tag}`).setDescription(list)] });
@@ -1917,12 +1919,12 @@ client.on('interactionCreate', async (interaction) => {
                     await interaction.editReply(`✅ **${target.username}** is no longer banned from creating quizzes.`);
                 }
             }
-            if (commandName === 'deletenote' && isTrial) {
+            if (commandName === 'notes' && options.getSubcommand() === 'delete' && isTrial) {
                 const target = options.getUser('target'); const idx = options.getInteger('index') - 1;
                 if (db.notes[target.id]?.[idx]) { db.notes[target.id].splice(idx, 1); await db.save(); return interaction.editReply("✅ Deleted."); }
                 return interaction.editReply("❌ Not found.");
             }
-            if (commandName === 'offences') {
+            if (commandName === 'warn' && options.getSubcommand() === 'offences') {
                 const target = options.getUser('target') || user;
                 return interaction.editReply(`📊 ${target.tag} has **${db.offences[target.id] || 0}** offences.`);
             }
@@ -2439,7 +2441,7 @@ client.on('interactionCreate', async (interaction) => {
                 }
             }
 
-            if (commandName === 'warnings' && isTrial) {
+            if (commandName === 'warn' && options.getSubcommand() === 'view' && isTrial) {
                 const target = options.getUser('target');
 
                 const userCases = (db.cases || []).filter(c => c.userId === target.id);
@@ -2518,6 +2520,7 @@ client.on('interactionCreate', async (interaction) => {
 
             }
             if (commandName === 'case') {
+                if (!isTrial) return interaction.editReply("❌ You need **Trial Moderator+** to use this.");
                 const c = db.cases.find(x => x.id === options.getInteger('id'));
                 if (!c) return interaction.editReply("❌ Case not found.");
                 return interaction.editReply({ embeds: [new EmbedBuilder().setTitle(`Case #${c.id}`).addFields({ name: 'User', value: c.user }, { name: 'Reason', value: c.reason })] });
@@ -2656,6 +2659,22 @@ client.on('interactionCreate', async (interaction) => {
                 }
             }
 
+            if (commandName === 'warn' && options.getSubcommand() === 'add') {
+                if (!isTrial) return interaction.editReply("❌ You need **Trial Moderator+** to use this.");
+                const target = options.getUser('target');
+                const reason = options.getString('reason') || 'No reason provided.';
+                const targetMember = target ? guild.members.cache.get(target.id) : null;
+
+                if (target.id === user.id) return interaction.editReply("❌ You cannot warn yourself.");
+                if (targetMember && targetMember.roles.cache.has('772558550555295794')) {
+                    return interaction.editReply("❌ You cannot warn another staff member. Use `/strike` instead.");
+                }
+
+                const { action, caseId } = await applyEscalation(guild, target, targetMember, reason, user.tag);
+                logAction(guild, `🛡️ Case #${caseId} | ${action}`, `**Target:** ${target.tag}\n**Moderator:** ${user.tag}\n**Reason:** ${reason}`, 0xFFCC00);
+                return interaction.editReply(`✅ **${target.tag}** warned. Result: **${action}** (Case #${caseId})`);
+            }
+
             if (commandName === 'mod') {
                 const subcommand = interaction.options.getSubcommand();
                 const target = options.getUser('target');
@@ -2663,19 +2682,12 @@ client.on('interactionCreate', async (interaction) => {
                 const targetMember = target ? guild.members.cache.get(target.id) : null;
 
                 switch (subcommand) {
-                    case 'warn':
-                        if (!isMod) return interaction.editReply("❌ You need **Trial Mod+** to use this.");
-                        if (target.id === user.id) return interaction.editReply("❌ You cannot warn yourself.");
-                        if (targetMember && targetMember.roles.cache.has('772558550555295794')) {
-                            return interaction.editReply("❌ You cannot warn another staff member. Use `/strike` instead.");
-                        }
-
-                        const { action, caseId } = await applyEscalation(guild, target, targetMember, reason, user.tag);
-                        logAction(guild, `🛡️ Case #${caseId} | ${action}`, `**Target:** ${target.tag}\n**Moderator:** ${user.tag}\n**Reason:** ${reason}`, 0xFFCC00);
-                        return interaction.editReply(`✅ **${target.tag}** warned. Result: **${action}** (Case #${caseId})`);
-
                     case 'kick':
-                        if (!isMod) return interaction.editReply("❌ You need **Trial Mod+** to use this.");
+                        if (!isMod) return interaction.editReply("❌ You need **Moderator+** to use this.");
+                        {
+                            const evidence = options.getAttachment('evidence');
+                            if (!evidence) return interaction.editReply("❌ Evidence (an attachment) is required to use `/mod kick`.");
+                        }
                         await targetMember.kick(reason);
                         logAction(guild, '👢 Kick', `**User:** ${target.tag}\n**Reason:** ${reason}\n**Moderator:** ${user.tag}`, 0xFF4500);
                         return interaction.editReply(`👢 Kicked ${target.tag}.`);
@@ -2694,14 +2706,18 @@ client.on('interactionCreate', async (interaction) => {
                         return interaction.editReply(`🔓 Unbanned ID: ${unbanId}.`);
 
                     case 'mute':
-                        if (!isMod) return interaction.editReply("❌ You need **Trial Mod+** to use this.");
+                        if (!isTrial) return interaction.editReply("❌ You need **Trial Moderator+** to use this.");
+                        {
+                            const evidence = options.getAttachment('evidence');
+                            if (!evidence) return interaction.editReply("❌ Evidence (an attachment) is required to use `/mod mute`.");
+                        }
                         const minutes = options.getInteger('minutes');
                         await targetMember.timeout(minutes * 60 * 1000, reason);
                         logAction(guild, '🔇 Mute', `**User:** ${target.tag}\n**Duration:** ${minutes}m\n**Moderator:** ${user.tag}`, 0x808080);
                         return interaction.editReply(`🔇 Muted ${target.tag} for ${minutes} minutes.`);
 
                     case 'unmute':
-                        if (!isMod) return interaction.editReply("❌ You need **Trial Mod+** to use this.");
+                        if (!isTrial) return interaction.editReply("❌ You need **Trial Moderator+** to use this.");
                         await targetMember.timeout(null);
                         logAction(guild, '🔊 Unmute', `**User:** ${target.tag}\n**Moderator:** ${user.tag}`, 0x00FF00);
                         return interaction.editReply(`🔊 Removed timeout for ${target.tag}.`);
@@ -2714,7 +2730,7 @@ client.on('interactionCreate', async (interaction) => {
                         return interaction.editReply(`☁️ Softbanned ${target.tag} (Messages cleared).`);
 
                     case 'purge':
-                        if (!isMod) return interaction.editReply("❌ You need **Trial Mod+** to use this.");
+                        if (!isMod) return interaction.editReply("❌ You need **Moderator+** to use this.");
                         const amount = options.getInteger('amount');
 
                         // Perform the deletion first
@@ -2738,7 +2754,7 @@ client.on('interactionCreate', async (interaction) => {
                         return interaction.editReply(status ? `🔒 Channel locked.` : `🔓 Channel unlocked.`);
 
                     case 'dm':
-                        if (!isAtLeastAdmin) return interaction.editReply("❌ You need **Admin+** to use this.");
+                        if (!isMod) return interaction.editReply("❌ You need **Moderator+** to use this.");
                         const messageContent = options.getString('message');
 
                         // Create the Neon DM Embed
@@ -2985,7 +3001,8 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             // --- 5. MISC & UTILITY ---
-            if (commandName === 'announce' && isAtLeastAdmin) {
+            if (commandName === 'announce') {
+                if (!isMod) return interaction.editReply("❌ You need **Moderator+** to use this.");
                 const chan = options.getChannel('channel') || channel;
                 chan.send({ embeds: [new EmbedBuilder().setDescription(options.getString('message')).setColor(0x3498DB)] });
                 return interaction.editReply("✅ Announcement sent.");
