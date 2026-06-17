@@ -609,7 +609,7 @@ client = new Client({
     partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
     console.log(`✅ Logged in as ${client.user.tag}`);
     if (redis) {
         try {
@@ -643,6 +643,7 @@ let db = {
     aiEnabled: true,
     customQuizzes: {},
     dmThreads: {},
+    bannedWords: [],
 
     // The save function is now a method INSIDE the db object
     async save() {
@@ -3831,7 +3832,8 @@ client.on('messageCreate', async (message) => {
     const isIgnored = db.ignoredChannels?.some(id => String(id) === String(message.channel.id)) || false;
     if (isIgnored) return;
 
-    const trigger = (typeof BANNED_WORDS !== 'undefined' ? BANNED_WORDS : []).find(w => new RegExp(`\\b${w}\\b`, 'i').test(message.content));
+    const _allBannedWords = [...(typeof BANNED_WORDS !== 'undefined' ? BANNED_WORDS : []), ...(db.bannedWords || [])];
+    const trigger = _allBannedWords.find(w => new RegExp(`\\b${w}\\b`, 'i').test(message.content));
     if (trigger && !message.member.permissions.has(PermissionFlagsBits.Administrator)) {
         await message.delete().catch(() => { });
         const { action, caseId } = await applyEscalation(message.guild, message.author, message.member, "Auto-Mod", "SYSTEM");
