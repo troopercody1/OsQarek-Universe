@@ -130,8 +130,8 @@
                 <div class="module-row">
                     <div class="module-icon" style="background:#1a1f3a;">🤖</div>
                     <div class="module-body">
-                        <div class="module-title">AI Replies</div>
-                        <div class="module-desc">Responds when the bot is @mentioned in a server channel using the HuggingFace LLM.</div>
+                        <div class="module-title">AI</div>
+                        <div class="module-desc">Controls AI mention replies plus AI-powered slash commands like <code>/summarize</code> and <code>/ask-rules</code>.</div>
                     </div>
                     <div class="module-end">
                         <span class="mod-badge <%= db.aiEnabled !== false ? 'on' : 'off' %>">
@@ -141,8 +141,8 @@
                             <input type="hidden" name="module" value="aiEnabled">
                             <button type="submit"
                                     class="mod-toggle <%= db.aiEnabled !== false ? 'on' : '' %>"
-                                    title="Toggle AI Replies"
-                                    aria-label="Toggle AI Replies"></button>
+                                    title="Toggle AI"
+                                    aria-label="Toggle AI"></button>
                         </form>
                     </div>
                 </div>
@@ -152,7 +152,7 @@
                     <div class="module-icon" style="background:#1a2e1a;">🎵</div>
                     <div class="module-body">
                         <div class="module-title">Music</div>
-                        <div class="module-desc">SoundCloud playback via <code>/play</code>, <code>/skip</code>, <code>/stop</code>, <code>/queue</code>.</div>
+                        <div class="module-desc">Controls the full <code>/music</code> command group: join, play, skip, queue, pause, resume, volume, leave, autoplay, 24/7, and clear.</div>
                     </div>
                     <div class="module-end">
                         <span class="mod-badge <%= db.musicEnabled !== false ? 'on' : 'off' %>">
@@ -236,7 +236,7 @@
                     <div class="module-icon" style="background:#1a1f3a;">⏰</div>
                     <div class="module-body">
                         <div class="module-title">Reminders</div>
-                        <div class="module-desc">Polls every 10 s and DMs users their due reminders set via <code>/remind</code>.</div>
+                        <div class="module-desc">Controls <code>/reminder</code> and the reminder delivery loop for due reminders.</div>
                     </div>
                     <div class="module-end">
                         <span class="mod-badge <%= db.remindersEnabled !== false ? 'on' : 'off' %>">
@@ -257,7 +257,7 @@
                     <div class="module-icon" style="background:#2e1a1a;">⚖️</div>
                     <div class="module-body">
                         <div class="module-title">Moderation</div>
-                        <div class="module-desc">Kick, ban, mute, warn, strike, purge, lockdown, slowmode, and case management commands.</div>
+                        <div class="module-desc">Controls moderation actions: <code>/mod</code>, <code>/warn</code>, mute, unmute, slowmode, cases, reaction roles, roles, announcements, and nickname tools.</div>
                     </div>
                     <div class="module-end">
                         <span class="mod-badge <%= db.moderationEnabled !== false ? 'on' : 'off' %>">
@@ -275,7 +275,7 @@
                     <div class="module-icon" style="background:#1a1f3a;">🔧</div>
                     <div class="module-body">
                         <div class="module-title">Utilities</div>
-                        <div class="module-desc">pfp, poll, suggest, ship, ping, userinfo, serverinfo, afk, loa, latest-update, ask-rules.</div>
+                        <div class="module-desc">Controls general tools: ping, serverinfo, userinfo, pfp, poll, suggest, random, afk, socials, emoji names, and latest-update.</div>
                     </div>
                     <div class="module-end">
                         <span class="mod-badge <%= db.utilitiesEnabled !== false ? 'on' : 'off' %>">
@@ -293,7 +293,7 @@
                     <div class="module-icon" style="background:#2e2a1a;">🎲</div>
                     <div class="module-body">
                         <div class="module-title">Fun</div>
-                        <div class="module-desc">joke, dadjoke, fact, cat, dog, coinflip, diceroll, randomletter, osqareksocials.</div>
+                        <div class="module-desc">Controls <code>/fun</code>, ship, and prank commands like ban-prank, keyboard-fix, nuke-server, reset-levels, and nerd-mode.</div>
                     </div>
                     <div class="module-end">
                         <span class="mod-badge <%= db.funEnabled !== false ? 'on' : 'off' %>">
@@ -329,7 +329,7 @@
                     <div class="module-icon" style="background:#1a1f3a;">🛠️</div>
                     <div class="module-body">
                         <div class="module-title">Staff Tools</div>
-                        <div class="module-desc">staffstats, notes, reactionrole, syncstats, messagereset, addmod, deletemod, modlog, ping-all-staff.</div>
+                        <div class="module-desc">Controls staff-only tools: staffstats, syncstats, messagereset, staffdm, ping-all-staff, LOA, strikes, and notes.</div>
                     </div>
                     <div class="module-end">
                         <span class="mod-badge <%= db.staffToolsEnabled !== false ? 'on' : 'off' %>">
