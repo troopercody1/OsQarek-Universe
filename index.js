@@ -281,7 +281,7 @@ app.post('/remove-reaction-role/:index', checkAuth, async (req, res) => {
 });
 
 // --- MODULE TOGGLES ---
-const TOGGLEABLE_MODULES = ['aiEnabled', 'musicEnabled', 'modmailEnabled', 'automodEnabled', 'welcomeEnabled', 'remindersEnabled'];
+const TOGGLEABLE_MODULES = ['aiEnabled', 'musicEnabled', 'modmailEnabled', 'automodEnabled', 'welcomeEnabled', 'remindersEnabled', 'moderationEnabled', 'utilitiesEnabled', 'funEnabled', 'quizEnabled', 'staffToolsEnabled'];
 app.post('/modules/toggle', checkAuth, async (req, res) => {
     const mod = req.body.module;
     if (!TOGGLEABLE_MODULES.includes(mod)) return res.status(400).send('Unknown module');
@@ -1853,6 +1853,7 @@ client.on('interactionCreate', async (interaction) => {
                 return interaction.editReply(`🔊 Unmuted **${target.user.tag}**.`);
             }
             if (commandName === 'pfp') {
+                if (db.utilitiesEnabled === false) return interaction.editReply('🚫 The Utilities module is currently disabled.');
                 const user = interaction.options.getUser('target') || interaction.user;
                 const pfpEmbed = createEmbed({
                     title: `${user.username}'s Profile Picture`,
@@ -1884,6 +1885,7 @@ client.on('interactionCreate', async (interaction) => {
                 await db.save(); // Ensure this persists on your Mac mini
             }
             if (commandName === 'fun') {
+                if (db.funEnabled === false) return interaction.editReply('🚫 The Fun module is currently disabled.');
                 const subcommand = interaction.options.getSubcommand();
 
                 switch (subcommand) {
@@ -1972,6 +1974,7 @@ client.on('interactionCreate', async (interaction) => {
 
             // --- POLLS ---
             if (commandName === 'poll') {
+                if (db.utilitiesEnabled === false) return interaction.editReply('🚫 The Utilities module is currently disabled.');
                 const question = interaction.options.getString('question');
                 const pollEmbed = new EmbedBuilder()
                     .setTitle('📊 New Poll')
@@ -1985,6 +1988,7 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             if (commandName === 'quiz' && options.getSubcommand() === 'create') {
+                if (db.quizEnabled === false) return interaction.editReply('🚫 The Quiz module is currently disabled.');
                 // 1. Check if user is banned from quizzes
                 if (db.quizBanned && db.quizBanned.includes(user.id)) {
                     return interaction.editReply("❌ You are banned from creating quizzes.");
@@ -2586,6 +2590,7 @@ client.on('interactionCreate', async (interaction) => {
                 return interaction.editReply({ embeds: [lbEmbed] });
             }
             if (commandName === 'suggest') {
+                if (db.utilitiesEnabled === false) return interaction.editReply('🚫 The Utilities module is currently disabled.');
                 const idea = interaction.options.getString('idea');
                 const suggestEmbed = createEmbed({
                     description: `**Suggestion:**\n${idea}`,
@@ -2930,6 +2935,7 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             if (commandName === 'mod') {
+                if (db.moderationEnabled === false) return interaction.editReply('🚫 The Moderation module is currently disabled.');
                 const subcommand = interaction.options.getSubcommand();
                 const target = options.getUser('target');
                 const reason = options.getString('reason') || 'No reason provided.';
@@ -3049,6 +3055,7 @@ client.on('interactionCreate', async (interaction) => {
 
 
             if (commandName === 'staffstats' && options.getSubcommand() === 'all') {
+                if (db.staffToolsEnabled === false) return interaction.editReply('🚫 The Staff Tools module is currently disabled.');
                 // 1. Permission Check
                 const adminRoles = ['850513087399329823', '771423764511981599', '1511810524818440243'];
                 // Use interaction.member to ensure it's defined
