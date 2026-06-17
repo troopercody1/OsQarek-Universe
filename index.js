@@ -239,16 +239,57 @@ app.get('/', checkAuth, async (req, res) => {
         members = Array.from(fetched.values()).filter(m => !(db.reviewedUsers || []).includes(m.id));
         emojis = guild.emojis.cache.map(e => ({ id: e.id, name: e.name, toString: e.toString() }));
     }
-    res.render('index', { 
-        stats: { botName: client?.user?.username || "Dashboard", botStatus: client?.readyAt ? "ONLINE" : "OFFLINE", guildsCount: client?.guilds?.cache.size || 0, totalUsers: client?.users?.cache.size || 0, ping: `${Math.round(client?.ws?.ping || 0)}ms` },
-        members, emojis, cases: db.cases || [], settings: db.settings || {}, reactionRoles: db.reactionRoles || [], bannedWords: db.bannedWords || [], user: req.session.user, logs: global.botLogs, errors: global.botErrors 
+    const uptimeSec = Math.floor(process.uptime());
+    const hh = Math.floor(uptimeSec / 3600);
+    const mm = Math.floor((uptimeSec % 3600) / 60);
+    const ss = uptimeSec % 60;
+    const uptimeStr = hh > 0 ? `${hh}h ${mm}m` : mm > 0 ? `${mm}m ${ss}s` : `${ss}s`;
+    res.render('index', {
+        stats: {
+            botName: client?.user?.username || "Dashboard",
+            botStatus: client?.readyAt ? "ONLINE" : "OFFLINE",
+            guildsCount: client?.guilds?.cache.size || 0,
+            totalUsers: client?.users?.cache.size || 0,
+            ping: `${Math.round(client?.ws?.ping || 0)}ms`,
+            uptime: uptimeStr,
+        },
+        members, emojis,
+        cases: db.cases || [],
+        settings: db.settings || {},
+        reactionRoles: db.reactionRoles || [],
+        bannedWords: db.bannedWords || [],
+        user: req.session.user,
+        logs: global.botLogs,
+        errors: global.botErrors,
+        db,
     });
 });
 
 app.post('/update-settings', checkAuth, async (req, res) => { db.settings = { prefix: req.body.prefix, welcomeChannel: req.body.welcomeChannel, goodbyeChannel: req.body.goodbyeChannel }; await safeSave(); res.redirect('/'); });
 app.post('/review-risk/:userId', checkAuth, async (req, res) => { if (!db.reviewedUsers) db.reviewedUsers = []; if (!db.reviewedUsers.includes(req.params.userId)) { db.reviewedUsers.push(req.params.userId); await safeSave(); } res.redirect('/#risk-manager'); });
 app.post('/add-reaction-role', checkAuth, async (req, res) => { if (!db.reactionRoles) db.reactionRoles = []; db.reactionRoles.push({ emoji: req.body.emoji, roleId: req.body.roleId, messageId: req.body.messageId }); await safeSave(); res.redirect('/'); });
-app.post('/banned-words/add', checkAuth, async (req, res) => { if (!db.bannedWords) db.bannedWords = []; if (!db.bannedWords.includes(req.body.word)) { db.bannedWords.push(req.body.word); await safeSave(); } res.redirect('/'); });
+app.post('/banned-words/add', checkAuth, async (req, res) => { if (!db.bannedWords) db.bannedWords = []; if (!db.bannedWords.includes(req.body.word)) { db.bannedWords.push(req.body.word); await safeSave(); } res.redirect('/#banned-words'); });
+app.post('/banned-words/remove', checkAuth, async (req, res) => { if (!db.bannedWords) db.bannedWords = []; db.bannedWords = db.bannedWords.filter(w => w !== req.body.word); await safeSave(); res.redirect('/#banned-words'); });
+
+app.post('/remove-reaction-role/:index', checkAuth, async (req, res) => {
+    const i = parseInt(req.params.index, 10);
+    if (!isNaN(i) && db.reactionRoles && db.reactionRoles[i]) {
+        db.reactionRoles.splice(i, 1);
+        await safeSave();
+    }
+    res.redirect('/#roles');
+});
+
+// --- MODULE TOGGLES ---
+const TOGGLEABLE_MODULES = ['aiEnabled', 'musicEnabled', 'modmailEnabled', 'automodEnabled', 'welcomeEnabled', 'remindersEnabled'];
+app.post('/modules/toggle', checkAuth, async (req, res) => {
+    const mod = req.body.module;
+    if (!TOGGLEABLE_MODULES.includes(mod)) return res.status(400).send('Unknown module');
+    if (db[mod] === undefined) db[mod] = true;
+    db[mod] = !db[mod];
+    await safeSave();
+    res.redirect('/#modules');
+});
 app.post('/settings/toggle-maintenance', async (req, res) => {
     if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
     if (!db.settings) db.settings = { maintenanceMode: false };
@@ -1324,6 +1365,7 @@ client.on('interactionCreate', async (interaction) => {
                     }
 
                     case 'play': {
+                        if (db.musicEnabled === false) return interaction.editReply('🎵 Music module is currently disabled.');
                         console.log("DEBUG: Music Play started");
                         const query = interaction.options.getString('query');
                         if (!member.voice.channel) return interaction.editReply("❌ You must be in a voice channel.");
@@ -3778,6 +3820,7 @@ client.on('messageCreate', async (message) => {
     }
 
     // 3. Auto-Mod
+    if (db.automodEnabled !== false) {
     const isIgnored = db.ignoredChannels?.some(id => String(id) === String(message.channel.id)) || false;
     if (isIgnored) return;
 
@@ -3787,6 +3830,7 @@ client.on('messageCreate', async (message) => {
         const { action, caseId } = await applyEscalation(message.guild, message.author, message.member, "Auto-Mod", "SYSTEM");
         logAction(message.guild, `🚨 Auto-Mod | Case #${caseId}`, `User: ${message.author.tag}\nTrigger: ${trigger}\nAction: ${action}`, 0xFF0000);
     }
+    } // end automodEnabled check
 });
 
 // --- LOA AUTO-EXPIRY CHECKER ---
@@ -3884,6 +3928,7 @@ async function askAI(prompt, type = "default") {
 // gets sent back to the user's DMs. This repeats indefinitely in both directions.
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
+    if (db.modmailEnabled === false) return;
     if (message.guild) return; // Only handle DMs here
 
     if (!db.modLogChannel) {
@@ -3986,6 +4031,7 @@ client.on('messageCreate', async (message) => {
 // --- REMINDER CHECKER ---
 setInterval(async () => {
     const now = Date.now();
+    if (db.remindersEnabled === false) return;
     const dueReminders = db.reminders.filter(r => r.expiresAt <= now);
 
     if (dueReminders.length > 0) {
@@ -4030,6 +4076,7 @@ const sharp = require('sharp');
 const Discord = require('discord.js'); // -- Dynamically ensures AttachmentBuilder is available safely
 
 // 1. WELCOME FEATURE
+    if (db.welcomeEnabled === false) return;
 client.on('guildMemberAdd', async (member) => {
     const welcomeChannel = member.guild.channels.cache.get('771479661573832744');
     if (!welcomeChannel) return console.log("⚠️ Welcome channel not found.");
@@ -4060,6 +4107,7 @@ client.on('guildMemberAdd', async (member) => {
 });
 
 // 2. GOODBYE FEATURE (API Fallback Engine)
+    if (db.welcomeEnabled === false) return;
 client.on('guildMemberRemove', async (member) => {
    // -- This log is placed at the absolute entry point to ensure visibility in your terminal
     console.log(`⚠️ DISPATCH: A leave packet was received for ID: ${member.id}`);
