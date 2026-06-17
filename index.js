@@ -134,6 +134,18 @@ app.use((req, res, next) => {
     if (req.session?.user?.id === 'admin') {
         maintenanceWhitelist.push('/settings');
         maintenanceWhitelist.push('/settings/toggle-maintenance');
+        maintenanceWhitelist.push('/settings/maintenance-config');
+        maintenanceWhitelist.push('/settings/rate-limit');
+        maintenanceWhitelist.push('/settings/toggle-https');
+        maintenanceWhitelist.push('/settings/toggle-bots');
+        maintenanceWhitelist.push('/settings/ip-allowlist');
+        maintenanceWhitelist.push('/settings/cache-strategy');
+        maintenanceWhitelist.push('/settings/toggle-image-opt');
+        maintenanceWhitelist.push('/settings/purge-cache');
+        maintenanceWhitelist.push('/settings/toggle-downtime-alerts');
+        maintenanceWhitelist.push('/settings/slack-webhook');
+        maintenanceWhitelist.push('/settings/flush-sessions');
+        maintenanceWhitelist.push('/settings/reset');
     }
 
     if (
@@ -240,14 +252,106 @@ app.post('/banned-words/add', checkAuth, async (req, res) => { if (!db.bannedWor
 app.post('/settings/toggle-maintenance', async (req, res) => {
     if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
     if (!db.settings) db.settings = { maintenanceMode: false };
-    
     db.settings.maintenanceMode = !db.settings.maintenanceMode;
     await db.save();
-    
     res.redirect('/settings?msg=' + (db.settings.maintenanceMode ? 'Maintenance+ON' : 'Maintenance+OFF'));
 });
 
+app.post('/settings/maintenance-config', async (req, res) => {
+    if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
+    if (!db.settings) db.settings = {};
+    db.settings.maintenanceETA     = req.body.eta              || '';
+    db.settings.maintenanceMessage = req.body.maintenanceMessage || '';
+    db.settings.bypassIPs          = req.body.bypassIPs         || '';
+    await db.save();
+    res.redirect('/settings?msg=Maintenance+config+saved');
+});
 
+app.post('/settings/rate-limit', async (req, res) => {
+    if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
+    if (!db.settings) db.settings = {};
+    db.settings.rateLimit = parseInt(req.body.rateLimit, 10) || 100;
+    await db.save();
+    res.redirect('/settings?msg=Rate+limit+updated');
+});
+
+app.post('/settings/toggle-https', async (req, res) => {
+    if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
+    if (!db.settings) db.settings = {};
+    db.settings.forceHttps = !db.settings.forceHttps;
+    await db.save();
+    res.redirect('/settings?msg=HTTPS+setting+updated');
+});
+
+app.post('/settings/toggle-bots', async (req, res) => {
+    if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
+    if (!db.settings) db.settings = {};
+    db.settings.blockBots = !db.settings.blockBots;
+    await db.save();
+    res.redirect('/settings?msg=Bot+blocking+updated');
+});
+
+app.post('/settings/ip-allowlist', async (req, res) => {
+    if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
+    if (!db.settings) db.settings = {};
+    db.settings.ipAllowlist = req.body.ipAllowlist || '';
+    await db.save();
+    res.redirect('/settings?msg=IP+allowlist+saved');
+});
+
+app.post('/settings/cache-strategy', async (req, res) => {
+    if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
+    if (!db.settings) db.settings = {};
+    db.settings.cacheStrategy = req.body.cacheStrategy || 'balanced';
+    await db.save();
+    res.redirect('/settings?msg=Cache+strategy+updated');
+});
+
+app.post('/settings/toggle-image-opt', async (req, res) => {
+    if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
+    if (!db.settings) db.settings = {};
+    db.settings.imageOptimisation = !db.settings.imageOptimisation;
+    await db.save();
+    res.redirect('/settings?msg=Image+optimisation+updated');
+});
+
+app.post('/settings/purge-cache', async (req, res) => {
+    if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
+    if (!db.settings) db.settings = {};
+    db.settings.lastCachePurge = Date.now();
+    await db.save();
+    res.redirect('/settings?msg=Cache+purged');
+});
+
+app.post('/settings/toggle-downtime-alerts', async (req, res) => {
+    if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
+    if (!db.settings) db.settings = {};
+    db.settings.downtimeAlerts = !db.settings.downtimeAlerts;
+    await db.save();
+    res.redirect('/settings?msg=Downtime+alerts+updated');
+});
+
+app.post('/settings/slack-webhook', async (req, res) => {
+    if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
+    if (!db.settings) db.settings = {};
+    db.settings.slackWebhook = req.body.slackWebhook || '';
+    await db.save();
+    res.redirect('/settings?msg=Slack+webhook+saved');
+});
+
+app.post('/settings/flush-sessions', async (req, res) => {
+    if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
+    // Destroy the current session last so the admin gets redirected cleanly
+    req.session.destroy(() => {});
+    res.redirect('/login?msg=All+sessions+flushed');
+});
+
+app.post('/settings/reset', async (req, res) => {
+    if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
+    db.settings = {};
+    await db.save();
+    res.redirect('/settings?msg=Settings+reset+to+defaults');
+});
 
 
 // --- BOT STARTUP ---
