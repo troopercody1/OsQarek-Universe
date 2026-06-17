@@ -282,6 +282,36 @@ app.post('/remove-reaction-role/:index', checkAuth, async (req, res) => {
 
 // --- MODULE TOGGLES ---
 const TOGGLEABLE_MODULES = ['aiEnabled', 'musicEnabled', 'modmailEnabled', 'automodEnabled', 'welcomeEnabled', 'remindersEnabled', 'moderationEnabled', 'utilitiesEnabled', 'funEnabled', 'quizEnabled', 'staffToolsEnabled'];
+const MODULE_COMMANDS = {
+    aiEnabled: ['summarize', 'ask-rules'],
+    musicEnabled: ['music'],
+    modmailEnabled: [],
+    remindersEnabled: ['reminder'],
+    moderationEnabled: ['mod', 'warn', 'mute', 'unmute', 'slowmode', 'case', 'reason', 'reactionrole', 'role', 'clearall', 'announce', 'globalannounce', 'latest-action', 'userignore', 'nickname'],
+    utilitiesEnabled: ['ping', 'serverinfo', 'userinfo', 'pfp', 'poll', 'suggest', 'random', 'afk', 'osqareksocials', 'emoji-names', 'latest-update'],
+    funEnabled: ['fun', 'ship', 'ban-prank', 'keyboard-fix', 'nuke-server', 'reset-levels', 'nerd-mode'],
+    quizEnabled: ['quiz', 'stateleaderboard'],
+    staffToolsEnabled: ['staffstats', 'syncstats', 'messagereset', 'staffdm', 'ping-all-staff', 'loa', 'strike', 'strikes', 'notes'],
+};
+const MODULE_LABELS = {
+    aiEnabled: 'AI',
+    musicEnabled: 'Music',
+    modmailEnabled: 'Modmail',
+    remindersEnabled: 'Reminders',
+    moderationEnabled: 'Moderation',
+    utilitiesEnabled: 'Utilities',
+    funEnabled: 'Fun',
+    quizEnabled: 'Quiz',
+    staffToolsEnabled: 'Staff Tools',
+};
+
+function getDisabledModuleForCommand(commandName) {
+    const normalized = commandName.toLowerCase();
+    return Object.entries(MODULE_COMMANDS).find(([moduleKey, commands]) =>
+        db[moduleKey] === false && commands.includes(normalized)
+    );
+}
+
 app.post('/modules/toggle', checkAuth, async (req, res) => {
     const mod = req.body.module;
     if (!TOGGLEABLE_MODULES.includes(mod)) return res.status(400).send('Unknown module');
@@ -1112,8 +1142,17 @@ client.on('interactionCreate', async (interaction) => {
             console.log(`DEBUG: Reached Staff Role check for /${interaction.commandName}`);
 
             // Check disabled commands
+            if (!Array.isArray(db.disabledCommands)) db.disabledCommands = [];
             if (db.disabledCommands.includes(commandName.toLowerCase()) && !isHeadAdmin) {
                 return interaction.editReply({ content: `❌ \`/${commandName}\` is disabled.` });
+            }
+
+            const disabledModule = getDisabledModuleForCommand(commandName);
+            if (disabledModule) {
+                const [moduleKey] = disabledModule;
+                return interaction.editReply({
+                    content: `🚫 The ${MODULE_LABELS[moduleKey] || 'requested'} module is currently disabled.`
+                });
             }
 
             // --- 3. SYSTEM & ADMIN COMMANDS ---
@@ -4105,8 +4144,8 @@ const sharp = require('sharp');
 const Discord = require('discord.js'); // -- Dynamically ensures AttachmentBuilder is available safely
 
 // 1. WELCOME FEATURE
-    if (db.welcomeEnabled === false) return;
 client.on('guildMemberAdd', async (member) => {
+    if (db.welcomeEnabled === false) return;
     const welcomeChannel = member.guild.channels.cache.get('771479661573832744');
     if (!welcomeChannel) return console.log("⚠️ Welcome channel not found.");
 
@@ -4136,8 +4175,8 @@ client.on('guildMemberAdd', async (member) => {
 });
 
 // 2. GOODBYE FEATURE (API Fallback Engine)
-    if (db.welcomeEnabled === false) return;
 client.on('guildMemberRemove', async (member) => {
+    if (db.welcomeEnabled === false) return;
    // -- This log is placed at the absolute entry point to ensure visibility in your terminal
     console.log(`⚠️ DISPATCH: A leave packet was received for ID: ${member.id}`);
     
