@@ -29,7 +29,7 @@ if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) 
 global.otpStore = {};
 global.botErrors = global.botErrors || [];
 global.botLogs = global.botLogs || [];
-global.db = global.db || { settings: {}, reviewedUsers: [], reactionRoles: [], bannedWords: [], cases: [], dmThreads: {} };
+global.db = global.db || { settings: {}, reviewedUsers: [], reactionRoles: [], bannedWords: [], cases: [], dmThreads: {}, aiEnabled: true, musicEnabled: true, modmailEnabled: true, automodEnabled: true, welcomeEnabled: true, remindersEnabled: true, moderationEnabled: true, utilitiesEnabled: true, funEnabled: true, quizEnabled: true, staffToolsEnabled: true };
 
 // Error Handling
 process.on('uncaughtException', (err) => console.error('CRITICAL DASHBOARD ERROR:', err));
@@ -614,7 +614,11 @@ client.once('clientReady', async () => {
     if (redis) {
         try {
             const remoteData = await redis.get('bot_db');
-            if (remoteData) Object.assign(db, remoteData);
+            if (remoteData) {
+                Object.assign(db, remoteData);
+                Object.assign(global.db, db);
+                if (!db.bannedWords) db.bannedWords = [];
+            }
         } catch (err) { console.error("❌ Redis sync failed:", err.message); }
     }
 });
@@ -641,6 +645,16 @@ let db = {
     reminders: [],
     stats: {},
     aiEnabled: true,
+    musicEnabled: true,
+    modmailEnabled: true,
+    automodEnabled: true,
+    welcomeEnabled: true,
+    remindersEnabled: true,
+    moderationEnabled: true,
+    utilitiesEnabled: true,
+    funEnabled: true,
+    quizEnabled: true,
+    staffToolsEnabled: true,
     customQuizzes: {},
     dmThreads: {},
     bannedWords: [],
@@ -671,17 +685,23 @@ let db = {
         if (redis) {
             console.log("⏳ Loading database from Upstash...");
             const remoteData = await redis.get('bot_db');
-            
+
             if (remoteData) {
-                // Merge the Redis data into the existing structure
-                Object.assign(global.db, remoteData);
+                // Merge Redis data into the real db object (defaults act as fallback for new keys)
+                // Object.assign only overwrites keys present in remoteData, so new fields
+                // added to the db defaults above are preserved when not yet in Redis.
+                Object.assign(db, remoteData);
+                Object.assign(global.db, db); // keep global.db in sync for Express routes
                 if (!db.dmThreads) db.dmThreads = {};
+                if (!db.bannedWords) db.bannedWords = [];
                 console.log("✅ Database successfully loaded from Upstash.");
             } else {
-                console.log("ℹ️ No existing database found in Redis; starting with default empty state.");
+                console.log("ℹ️ No existing database found in Redis; starting with defaults.");
+                Object.assign(global.db, db); // seed global.db with real defaults
             }
         } else {
             console.warn("⚠️ Redis not configured! Running with memory-only storage.");
+            Object.assign(global.db, db);
         }
     } catch (e) {
         console.error("❌ Redis Load Error:", e.message);
