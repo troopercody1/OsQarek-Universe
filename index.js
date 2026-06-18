@@ -400,13 +400,11 @@ app.post('/settings/toggle-maintenance', async (req, res) => {
         ? "The site has been switched into maintenance mode. Visitors will see the maintenance page."
         : "The site has been switched back to live mode. Visitors can access it again.";
 
-    if (db.settings.downtimeAlerts) {
-        await sendStatusChangeEmail({
-            subject: db.settings.maintenanceMode ? "Maintenance mode enabled" : "Site is live again",
-            title,
-            message
-        });
-    }
+    await sendStatusChangeEmail({
+        subject: db.settings.maintenanceMode ? "Maintenance mode enabled" : "Site is live again",
+        title,
+        message
+    });
     await sendDiscordWebhook({
         title,
         message,
