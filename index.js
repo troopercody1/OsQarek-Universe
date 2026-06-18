@@ -70,18 +70,33 @@ async function sendStatusChangeEmail({ subject, title, message }) {
 }
 
 async function sendDiscordWebhook({ title, message, color = 0x5865F2 }) {
-    const webhookUrl = db.settings?.discordWebhook || db.settings?.slackWebhook;
+    const webhookUrl = (db.settings?.discordWebhook || db.settings?.slackWebhook || '').trim();
     if (!webhookUrl) {
         console.error("❌ Discord webhook skipped: no webhook URL is configured.");
         return false;
     }
-    if (!/^https:\/\/(discord\.com|discordapp\.com)\/api\/webhooks\/\d+\/[\w-]+/i.test(webhookUrl)) {
+
+    let parsedWebhookUrl;
+    try {
+        parsedWebhookUrl = new URL(webhookUrl);
+    } catch {
+        console.error("❌ Discord webhook skipped: the configured URL is invalid.");
+        return false;
+    }
+
+    const isDiscordWebhook =
+        parsedWebhookUrl.protocol === 'https:' &&
+        ['discord.com', 'discordapp.com', 'canary.discord.com', 'ptb.discord.com'].includes(parsedWebhookUrl.hostname) &&
+        /^\/api\/webhooks\/\d+\/[^/]+\/?$/.test(parsedWebhookUrl.pathname);
+
+    if (!isDiscordWebhook) {
         console.error("❌ Discord webhook skipped: the configured URL is not a Discord webhook URL.");
         return false;
     }
 
     try {
         await axios.post(webhookUrl, {
+            content: message,
             username: "OsQarek Universe",
             embeds: [{
                 title,
@@ -493,7 +508,7 @@ app.post('/settings/toggle-downtime-alerts', async (req, res) => {
 app.post('/settings/discord-webhook', async (req, res) => {
     if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
     if (!db.settings) db.settings = {};
-    db.settings.discordWebhook = req.body.discordWebhook || req.body.slackWebhook || '';
+    db.settings.discordWebhook = (req.body.discordWebhook || req.body.slackWebhook || '').trim();
     delete db.settings.slackWebhook;
     await db.save();
     const sent = await sendDiscordWebhook({
