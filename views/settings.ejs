@@ -377,30 +377,30 @@
                 </div>
             </div>
 
-            <!-- Slack webhook -->
+            <!-- Discord webhook -->
             <div class="row">
                 <div class="row-icon" style="background:#1f2030;">
                     <span style="color:#a9b1d6;">&#128279;</span>
                 </div>
                 <div class="row-body">
-                    <div class="row-title">Slack webhook</div>
+                    <div class="row-title">Discord webhook</div>
                     <div class="row-desc">
-                        <%= settings.slackWebhook ? 'Configured' : 'Not configured' %>
+                        <%= (settings.discordWebhook || settings.slackWebhook) ? 'Configured' : 'Not configured' %>
                     </div>
                 </div>
                 <div class="row-end">
-                    <span class="chevron" id="slack-chevron" onclick="toggleDrawer('slack-drawer','slack-chevron')">&#8964;</span>
+                    <span class="chevron" id="discord-chevron" onclick="toggleDrawer('discord-drawer','discord-chevron')">&#8964;</span>
                 </div>
             </div>
-            <div class="drawer" id="slack-drawer">
-                <form action="/settings/slack-webhook" method="POST" style="display:contents;">
-                    <label>Webhook URL</label>
-                    <input type="url" name="slackWebhook"
-                           placeholder="https://hooks.slack.com/services/..."
-                           value="<%= settings.slackWebhook || '' %>">
+            <div class="drawer" id="discord-drawer">
+                <form action="/settings/discord-webhook" method="POST" style="display:contents;">
+                    <label>Discord webhook URL</label>
+                    <input type="url" name="discordWebhook"
+                           placeholder="https://discord.com/api/webhooks/..."
+                           value="<%= settings.discordWebhook || settings.slackWebhook || '' %>">
                     <div class="row-actions">
                         <button type="submit" class="btn btn-primary">Save</button>
-                        <button type="button" class="btn" onclick="toggleDrawer('slack-drawer','slack-chevron')">Cancel</button>
+                        <button type="button" class="btn" onclick="toggleDrawer('discord-drawer','discord-chevron')">Cancel</button>
                     </div>
                 </form>
             </div>
