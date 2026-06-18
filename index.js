@@ -143,7 +143,7 @@ app.use((req, res, next) => {
         maintenanceWhitelist.push('/settings/toggle-image-opt');
         maintenanceWhitelist.push('/settings/purge-cache');
         maintenanceWhitelist.push('/settings/toggle-downtime-alerts');
-        maintenanceWhitelist.push('/settings/slack-webhook');
+        maintenanceWhitelist.push('/settings/discord-webhook');
         maintenanceWhitelist.push('/settings/flush-sessions');
         maintenanceWhitelist.push('/settings/reset');
     }
@@ -402,12 +402,13 @@ app.post('/settings/toggle-downtime-alerts', async (req, res) => {
     res.redirect('/settings?msg=Downtime+alerts+updated');
 });
 
-app.post('/settings/slack-webhook', async (req, res) => {
+app.post('/settings/discord-webhook', async (req, res) => {
     if (req.session.user?.id !== 'admin') return res.status(403).send("Forbidden");
     if (!db.settings) db.settings = {};
-    db.settings.slackWebhook = req.body.slackWebhook || '';
+    db.settings.discordWebhook = req.body.discordWebhook || req.body.slackWebhook || '';
+    delete db.settings.slackWebhook;
     await db.save();
-    res.redirect('/settings?msg=Slack+webhook+saved');
+    res.redirect('/settings?msg=Discord+webhook+saved');
 });
 
 app.post('/settings/flush-sessions', async (req, res) => {
