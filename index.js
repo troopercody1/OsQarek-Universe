@@ -44,6 +44,61 @@ async function safeSave() {
     try { await db.save(); console.log("💾 Database synced."); } catch (e) { console.error("❌ Sync failed:", e.message); }
 }
 
+async function sendStatusChangeEmail({ subject, title, message }) {
+    if (!process.env.ADMIN_EMAIL || !process.env.BREVO_API_KEY) {
+        console.error("❌ Status email skipped: ADMIN_EMAIL or BREVO_API_KEY is missing.");
+        return false;
+    }
+
+    try {
+        await brevo.transactionalEmails.sendTransacEmail({
+            subject,
+            htmlContent: `
+                <h2>${title}</h2>
+                <p>${message}</p>
+                <p><strong>Time:</strong> ${new Date().toLocaleString('en-GB', { timeZone: 'Europe/London' })}</p>
+            `,
+            sender: { name: "OsQarek Universe", email: "osqarekuniverse@gmail.com" },
+            to: [{ email: process.env.ADMIN_EMAIL }]
+        });
+        console.log("✅ Status change email sent.");
+        return true;
+    } catch (err) {
+        console.error("❌ Status change email failed:", err.message);
+        return false;
+    }
+}
+
+async function sendDiscordWebhook({ title, message, color = 0x5865F2 }) {
+    const webhookUrl = db.settings?.discordWebhook || db.settings?.slackWebhook;
+    if (!webhookUrl) {
+        console.error("❌ Discord webhook skipped: no webhook URL is configured.");
+        return false;
+    }
+    if (!/^https:\/\/(discord\.com|discordapp\.com)\/api\/webhooks\/\d+\/[\w-]+/i.test(webhookUrl)) {
+        console.error("❌ Discord webhook skipped: the configured URL is not a Discord webhook URL.");
+        return false;
+    }
+
+    try {
+        await axios.post(webhookUrl, {
+            username: "OsQarek Universe",
+            embeds: [{
+                title,
+                description: message,
+                color,
+                timestamp: new Date().toISOString(),
+                footer: { text: "OsQarek Universe Dashboard" }
+            }]
+        });
+        console.log("✅ Discord webhook sent.");
+        return true;
+    } catch (err) {
+        console.error("❌ Discord webhook failed:", err.response?.data?.message || err.message);
+        return false;
+    }
+}
+
 // --- DEBOUNCED SAVE ---
 // Coalesces rapid-fire db.save() calls into a single write a few seconds later.
 // Use for non-critical updates (stats, message logs etc). Use safeSave() directly
@@ -325,6 +380,23 @@ app.post('/settings/toggle-maintenance', async (req, res) => {
     if (!db.settings) db.settings = { maintenanceMode: false };
     db.settings.maintenanceMode = !db.settings.maintenanceMode;
     await db.save();
+    const title = db.settings.maintenanceMode ? "Maintenance Mode Enabled" : "Maintenance Mode Disabled";
+    const message = db.settings.maintenanceMode
+        ? "The site has been switched into maintenance mode. Visitors will see the maintenance page."
+        : "The site has been switched back to live mode. Visitors can access it again.";
+
+    if (db.settings.downtimeAlerts) {
+        await sendStatusChangeEmail({
+            subject: db.settings.maintenanceMode ? "Maintenance mode enabled" : "Site is live again",
+            title,
+            message
+        });
+    }
+    await sendDiscordWebhook({
+        title,
+        message,
+        color: db.settings.maintenanceMode ? 0xE0AF68 : 0x9ECE6A
+    });
     res.redirect('/settings?msg=' + (db.settings.maintenanceMode ? 'Maintenance+ON' : 'Maintenance+OFF'));
 });
 
@@ -399,7 +471,23 @@ app.post('/settings/toggle-downtime-alerts', async (req, res) => {
     if (!db.settings) db.settings = {};
     db.settings.downtimeAlerts = !db.settings.downtimeAlerts;
     await db.save();
-    res.redirect('/settings?msg=Downtime+alerts+updated');
+    let msg = db.settings.downtimeAlerts ? 'Downtime+alerts+enabled' : 'Downtime+alerts+disabled';
+    if (db.settings.downtimeAlerts) {
+        const sent = await sendStatusChangeEmail({
+            subject: "Status email alerts enabled",
+            title: "Status Email Alerts Enabled",
+            message: "Email alerts are now enabled. You will be emailed when maintenance mode is turned on or off."
+        });
+        msg = sent ? 'Downtime+alerts+enabled+and+test+email+sent' : 'Downtime+alerts+enabled+but+email+failed';
+    }
+    await sendDiscordWebhook({
+        title: db.settings.downtimeAlerts ? "Status Alerts Enabled" : "Status Alerts Disabled",
+        message: db.settings.downtimeAlerts
+            ? "Dashboard status alerts have been enabled."
+            : "Dashboard status alerts have been disabled.",
+        color: db.settings.downtimeAlerts ? 0x9ECE6A : 0xF7768E
+    });
+    res.redirect('/settings?msg=' + msg);
 });
 
 app.post('/settings/discord-webhook', async (req, res) => {
@@ -408,7 +496,12 @@ app.post('/settings/discord-webhook', async (req, res) => {
     db.settings.discordWebhook = req.body.discordWebhook || req.body.slackWebhook || '';
     delete db.settings.slackWebhook;
     await db.save();
-    res.redirect('/settings?msg=Discord+webhook+saved');
+    const sent = await sendDiscordWebhook({
+        title: "Discord Webhook Connected",
+        message: "This channel will now receive dashboard status notifications.",
+        color: 0x5865F2
+    });
+    res.redirect('/settings?msg=' + (sent ? 'Discord+webhook+saved+and+test+sent' : 'Discord+webhook+saved+but+test+failed'));
 });
 
 app.post('/settings/flush-sessions', async (req, res) => {
