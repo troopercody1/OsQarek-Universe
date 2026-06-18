@@ -242,7 +242,7 @@ function checkAuth(req, res, next) {
 
 // --- ROUTES ---
 app.get('/login', (req, res) => {
-    if (req.session?.user && req.session.isHeadAdmin) return res.redirect('/');
+    if (req.session?.user && req.session.isHeadAdmin) return res.redirect(req.session.user?.id === 'admin' ? '/settings' : '/');
     res.render('login', { error: req.query.error || null, stats: { botName: client?.user?.username || "OsQarek’s Universe" } });
 });
 
@@ -297,7 +297,7 @@ app.post('/auth/verify-otp', (req, res) => {
 
 app.get('/settings', (req, res) => {
     if (req.session.user?.id === 'admin') {
-        res.render('settings', { user: req.session.user, settings: db.settings || {}, bannedWords: db.bannedWords || [] });
+        res.render('settings', { user: req.session.user, settings: db.settings || {}, bannedWords: db.bannedWords || [], msg: req.query.msg || null });
     } else res.status(403).send("<h1>403 Forbidden</h1><p>Access denied.</p>");
 });
 
@@ -348,6 +348,15 @@ app.post('/remove-reaction-role/:index', checkAuth, async (req, res) => {
         await safeSave();
     }
     res.redirect('/#roles');
+});
+
+app.post('/edit-case/:index', checkAuth, async (req, res) => {
+    const i = parseInt(req.params.index, 10);
+    if (!isNaN(i) && db.cases && db.cases[i]) {
+        db.cases[i].reason = req.body.reason || db.cases[i].reason;
+        await safeSave();
+    }
+    res.redirect('/#infractions');
 });
 
 // --- MODULE TOGGLES ---
@@ -746,14 +755,13 @@ client = new Client({
     partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
 
-client.once('clientReady', async () => {
+client.once('ready', async () => {
     console.log(`✅ Logged in as ${client.user.tag}`);
     if (redis) {
         try {
             const remoteData = await redis.get('bot_db');
             if (remoteData) {
                 Object.assign(db, remoteData);
-                Object.assign(global.db, db);
                 if (!db.bannedWords) db.bannedWords = [];
             }
         } catch (err) { console.error("❌ Redis sync failed:", err.message); }
@@ -828,21 +836,20 @@ let db = {
                 // Object.assign only overwrites keys present in remoteData, so new fields
                 // added to the db defaults above are preserved when not yet in Redis.
                 Object.assign(db, remoteData);
-                Object.assign(global.db, db); // keep global.db in sync for Express routes
                 if (!db.dmThreads) db.dmThreads = {};
                 if (!db.bannedWords) db.bannedWords = [];
                 console.log("✅ Database successfully loaded from Upstash.");
             } else {
                 console.log("ℹ️ No existing database found in Redis; starting with defaults.");
-                Object.assign(global.db, db); // seed global.db with real defaults
             }
         } else {
             console.warn("⚠️ Redis not configured! Running with memory-only storage.");
-            Object.assign(global.db, db);
         }
     } catch (e) {
         console.error("❌ Redis Load Error:", e.message);
     }
+    // Always point global.db at the live db object so all mutations are shared
+    global.db = db;
 })();
 
 // --- LOGGING SYSTEM ---
@@ -943,7 +950,7 @@ const applyEscalation = async (guild, targetUser, targetMember, reason, moderato
     return { action: actionTaken, caseId: newCaseId };
 };
 
-client.once('clientReady', async () => {
+client.once('ready', async () => {
     console.log(`🛡️ Online: ${client.user.tag}`);
 
     // 1. Define your rotating statuses
