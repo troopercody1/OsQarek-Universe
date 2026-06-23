@@ -3577,8 +3577,9 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             if (commandName === 'loa' && options.getSubcommand() === 'request') {
-                const durationInput = options.getString('duration');
-                const dateRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
+            const durationInput = options.getString('duration');
+            const reason = options.getString('reason') || 'No reason provided';
+            const dateRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
 
                 if (!dateRegex.test(durationInput)) {
                     return interaction.editReply({ content: "❌ **Invalid Format!** Use: `YYYY-MM-DD HH:mm`", flags: MessageFlags.Ephemeral });
