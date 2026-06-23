@@ -280,30 +280,40 @@ const commands = [
     // --- LOA SUITE ---
     // Combines: loa, loalist, endloa
     {
-        name: 'loa',
-        description: 'OsQarek’s Universe LOA Suite',
-        options: [
-            {
-                name: 'request',
-                description: 'Request a leave of absence',
-                type: 1,
-                options: [
-                    { name: 'reason', description: 'Reason', type: 3, required: true },
-                    { name: 'duration', description: 'Until [YYYY-MM-DD]', type: 3, required: true }
-                ]
-            },
-            { name: 'list', description: 'View staff currently on LOA', type: 1 },
-            {
-                name: 'end',
-                description: 'End a leave of absence',
-                type: 1,
-                options: [
-                    { name: 'staff', description: 'The user', type: 6, required: false }
-                ]
-            }
-        ]
-    },
-
+    name: 'loa',
+    description: 'OsQarek\'s Universe LOA Suite',
+    options: [
+        {
+            name: 'request',
+            description: 'Request a leave of absence',
+            type: 1,
+            options: [
+                { name: 'reason', description: 'Reason', type: 3, required: true },
+                { name: 'duration', description: 'Until [YYYY-MM-DD HH:mm]', type: 3, required: true }
+            ]
+        },
+        { name: 'list', description: 'View staff currently on LOA', type: 1 },
+        {
+            name: 'end',
+            description: 'End a leave of absence',
+            type: 1,
+            options: [
+                { name: 'staff', description: 'The user', type: 6, required: false }
+            ]
+        },
+        {
+            name: 'adminset',
+            description: 'Forcefully set an LOA for a staff member',
+            type: 1,
+            options: [
+                { name: 'user', description: 'The staff member', type: 6, required: true },
+                { name: 'duration', description: 'Until [YYYY-MM-DD HH:mm]', type: 3, required: true },
+                { name: 'reason', description: 'Reason for the LOA', type: 3, required: false }
+            ]
+        }
+    ]
+},
+    
     { name: 'announce', description: 'Send an announcement to a channel', options: [{ name: 'message', description: 'The announcement text', type: 3, required: true }, { name: 'channel', description: 'Target channel (defaults to current)', type: 7, required: false }] },
     {
         name: 'case',
