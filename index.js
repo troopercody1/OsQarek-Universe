@@ -3649,6 +3649,47 @@ client.on('interactionCreate', async (interaction) => {
                 }
                 return interaction.editReply(`✅ Successfully ended the LOA for **${targetUser.user.tag}**.`);
             }
+
+            if (commandName === 'loa' && options.getSubcommand() === 'adminset') {
+    const hasManagementPerms = member.roles.cache.has('850513087399329823') || 
+                               member.roles.cache.has('771423764511981599') || 
+                               member.roles.cache.has('1511810524818440243') || 
+                               member.permissions.has(PermissionFlagsBits.Administrator);
+
+    if (!hasManagementPerms) return interaction.editReply({ content: "❌ Permission denied.", flags: MessageFlags.Ephemeral });
+
+    const targetMember = options.getMember('user');
+    if (!targetMember) return interaction.editReply({ content: "❌ Could not find that user.", flags: MessageFlags.Ephemeral });
+
+    const durationInput = options.getString('duration');
+    const reason = options.getString('reason') || 'No reason provided';
+    const dateRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
+
+    if (!dateRegex.test(durationInput)) {
+        return interaction.editReply({ content: "❌ **Invalid Format!** Use: `YYYY-MM-DD HH:mm`", flags: MessageFlags.Ephemeral });
+    }
+
+    const parts = durationInput.split(/[- :]/);
+    const dateObj = new Date(parts[0], parts[1] - 1, parts[2], parts[3], parts[4]);
+
+    if (isNaN(dateObj.getTime()) || dateObj < new Date()) {
+        return interaction.editReply({ content: "❌ **Invalid Date!** Must be in the future.", flags: MessageFlags.Ephemeral });
+    }
+
+    db.loa[targetMember.id] = {
+        status: 'Approved',
+        timestamp: Math.floor(Date.now() / 1000),
+        duration: durationInput,
+        reason: reason
+    };
+    await db.save();
+
+    if (typeof logAction === 'function') {
+        logAction(guild, '📂 LOA Admin Set', `**Staff:** ${targetMember.user.tag}\n**End Date:** ${durationInput}\n**Reason:** ${reason}\n**Set By:** ${user.tag}`, 0xFFA500);
+    }
+
+    return interaction.editReply(`✅ LOA has been set for **${targetMember.user.tag}** until \`${durationInput}\`.`);
+}
             if (commandName === 'emoji-names') {
                 const prefix = interaction.options.getString('prefix');
                 const suffix = interaction.options.getString('suffix');
