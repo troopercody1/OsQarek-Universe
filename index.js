@@ -3892,13 +3892,13 @@ client.on('interactionCreate', async (interaction) => {
             // If we already told Discord to wait (deferred) or already replied, we MUST use editReply
             if (interaction.deferred || interaction.replied) {
                 await interaction.editReply({
-                    content: `❌ **Universe Error:** ${err.message}`,
+                    content: `❌ **Error:** ${err.message}`,
                     components: []
                 }).catch(() => { });
             } else {
                 // If the command crashed instantly before deferring
                 await interaction.reply({
-                    content: `❌ **Universe Error:** ${err.message}`,
+                    content: `❌ **Error:** ${err.message}`,
                     ephemeral: true
                 }).catch(() => { });
             }
