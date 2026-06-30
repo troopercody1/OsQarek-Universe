@@ -973,18 +973,6 @@ client.once('ready', async () => {
                 activities: [{ name: status.text, type: status.activity }],
                 status: status.presence,
             });
-
-            // Log to ModLog
-            const guild = client.guilds.cache.first();
-            if (guild && db.modLogChannel) {
-                // Using your existing logAction function
-                logAction(
-                    guild,
-                    '🔄 Status Rotated',
-                    `**New Activity:** ${status.type} ${status.text}\n**Presence Color:** ${status.presence}`,
-                    0x3498DB // Blue color for system updates
-                );
-            }
         } catch (err) {
             console.error("Failed to update or log status rotation:", err);
         }
