@@ -4371,10 +4371,17 @@ client.on('guildMemberRemove', async (member) => {
         await setupPlayDL();
         console.log("🎧 Play-DL initialized.");
 
-        // Attempt login and catch the API error specifically
+        if (!process.env.TOKEN) {
+            console.error("❌ Startup aborted: process.env.TOKEN is missing/empty. Check Render's Environment tab.");
+            return;
+        }
+        console.log(`🔑 Attempting Discord login... (token length: ${process.env.TOKEN.length})`);
+
         await client.login(process.env.TOKEN);
+        console.log("🔑 client.login() resolved successfully.");
     } catch (err) {
-        if (err.message.includes('503') || err.message.includes('Service Unavailable')) {
+        const msg = (err && err.message) ? err.message : String(err);
+        if (msg.includes('503') || msg.includes('Service Unavailable')) {
             console.error("⚠️ Discord API is down (503). Retrying is blocked by the outage.");
         } else {
             console.error("❌ Startup failed:", err);
