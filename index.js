@@ -755,6 +755,18 @@ client = new Client({
     partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
 
+// --- GATEWAY DIAGNOSTICS ---
+// Temporary verbose logging to trace exactly where login() is stalling.
+// Safe to remove/comment out once the hang is diagnosed.
+client.on('debug', (info) => console.log('🔧 [gateway debug]', info));
+client.on('warn', (info) => console.warn('⚠️ [gateway warn]', info));
+client.on('error', (err) => console.error('❌ [client error]', err));
+client.on('shardError', (err, shardId) => console.error(`❌ [shard ${shardId} error]`, err));
+client.on('shardDisconnect', (event, shardId) => console.log(`🔌 [shard ${shardId} disconnected]`, event?.code, event?.reason));
+client.on('shardReconnecting', (shardId) => console.log(`🔄 [shard ${shardId} reconnecting]`));
+client.on('shardResume', (shardId, replayed) => console.log(`▶️ [shard ${shardId} resumed]`, replayed));
+client.on('invalidated', () => console.error('❌ [session invalidated] Discord invalidated this session — token or intents likely rejected.'));
+
 client.once('ready', async () => {
     console.log(`✅ Logged in as ${client.user.tag}`);
     if (redis) {
