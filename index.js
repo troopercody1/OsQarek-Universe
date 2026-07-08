@@ -772,6 +772,7 @@ const queue = new Map();
 const BANNED_WORDS = require('./badwords.js');
 let unsavedMessages = 0;
 let isTrial = false;
+let stayInVC = false;
 
 // --- DATABASE STARTS BELOW ---
 let db = {
@@ -1218,7 +1219,7 @@ client.on('interactionCreate', async (interaction) => {
     // 4. SLASH COMMAND HANDLER (Merged into main event)
     if (interaction.isChatInputCommand()) {
         try {
-            const { commandName, options, guild, member, user } = interaction;
+            const { commandName, options, guild, member, user, channel } = interaction;
 
             console.log(`DEBUG: Deferred command /${interaction.commandName}`);
 
@@ -1669,7 +1670,7 @@ client.on('interactionCreate', async (interaction) => {
                         const level = options.getNumber('level');
 
                         // Updated safety check to allow up to 1000%
-                        if (level < 0 || level > 1000000000000000000000000000000000000000000000000000000000000000) {
+                        if (level < 0 || level > 1000) {
                             return interaction.editReply("❌ Please provide a volume between 0 and 1000.");
                         }
 
@@ -2272,7 +2273,7 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             if (commandName === 'quiz' && options.getSubcommand() === 'list') {
-                const quizzes = Object.keys(db.customQuizzes);
+                const quizzes = Object.keys(db.customQuizzes || {});
                 if (quizzes.length === 0) return interaction.editReply("📚 No custom quizzes found.");
 
                 const list = quizzes.map(q => `• **${q}** (${db.customQuizzes[q].length} questions)`).join('\n');
