@@ -1,5 +1,11 @@
 process.env.TZ = 'Europe/London';
 
+const dns = require('dns');
+if (typeof dns.setDefaultResultOrder === 'function') {
+    dns.setDefaultResultOrder('ipv4first');
+    console.log('🌐 DNS result order set to ipv4first (workaround for hosts with broken IPv6 routing to Discord).');
+}
+
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
