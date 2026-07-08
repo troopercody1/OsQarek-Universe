@@ -6,6 +6,25 @@ if (typeof dns.setDefaultResultOrder === 'function') {
     console.log('🌐 DNS result order set to ipv4first (workaround for hosts with broken IPv6 routing to Discord).');
 }
 
+// --- ONE-TIME NETWORK PROBE ---
+// Directly hits Discord's REST API with a hard 8s timeout, bypassing discord.js entirely,
+// to prove/disprove whether this host's egress can reach Discord at all.
+(function probeDiscordConnectivity() {
+    const https = require('https');
+    const start = Date.now();
+    const req = https.get('https://discord.com/api/v10/gateway', { timeout: 8000 }, (res) => {
+        console.log(`🩺 [probe] Reached discord.com — status ${res.statusCode} in ${Date.now() - start}ms`);
+        res.resume();
+    });
+    req.on('timeout', () => {
+        console.error(`🩺 [probe] TIMED OUT after ${Date.now() - start}ms reaching discord.com — egress to Discord is likely blocked/blackholed on this host.`);
+        req.destroy();
+    });
+    req.on('error', (err) => {
+        console.error(`🩺 [probe] ERROR reaching discord.com after ${Date.now() - start}ms:`, err.message);
+    });
+})();
+
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
