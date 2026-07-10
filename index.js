@@ -2352,7 +2352,6 @@ client.on('interactionCreate', async (interaction) => {
     logAction(guild, '➖ Warn Removed', `User: ${target.tag}\nMod: ${user.tag}`);
     return interaction.editReply("✅ Removed 1 offence and deleted the most recent case.");
 }
-}
             if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                 if (!isAtLeastAdmin) return interaction.editReply("❌ You need **Administrator+** to use this.");
                 const target = options.getUser('target'); db.offences[target.id] = 0; await db.save();
