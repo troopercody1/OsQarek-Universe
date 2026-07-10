@@ -807,7 +807,6 @@ client.once('ready', async () => {
 });
 
 const queue = new Map();
-const BANNED_WORDS = require('./badwords.js');
 let unsavedMessages = 0;
 let isTrial = false;
 let stayInVC = false;
@@ -4086,10 +4085,7 @@ client.on('messageCreate', async (message) => {
         const isAdmin = message.member.permissions.has(PermissionFlagsBits.Administrator);
 
         if (!isIgnored && !isAdmin) {
-            const fallbackWords = [
-                ...(typeof BANNED_WORDS !== 'undefined' ? BANNED_WORDS : []),
-                ...(db.bannedWords || []),
-            ];
+            const fallbackWords = [...(db.bannedWords || [])];
 
             const result = await checkMessage(
                 message.content,
