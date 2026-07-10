@@ -2331,7 +2331,7 @@ client.on('interactionCreate', async (interaction) => {
                 await interaction.editReply(`🗑️ Entire quiz **${name}** and all its questions have been deleted.`);
             }
             // --- 4. RECORDS & NOTES ---
-            ifif (commandName === 'warn' && options.getSubcommand() === 'delete') {
+if (commandName === 'warn' && options.getSubcommand() === 'delete') {
     if (!isMod) return interaction.editReply("❌ You need **Moderator+** to use this.");
     const target = options.getUser('target');
 
@@ -2340,23 +2340,16 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.editReply("❌ That user has no cases to remove.");
     }
 
-    // Remove most recent case
     const lastCaseIndex = db.cases.map(c => c.userId).lastIndexOf(target.id);
     db.cases.splice(lastCaseIndex, 1);
 
-    // Sync offences count to match remaining cases
     db.offences[target.id] = db.cases.filter(c => c.userId === target.id).length;
 
     await db.save();
     logAction(guild, '➖ Warn Removed', `User: ${target.tag}\nMod: ${user.tag}`);
     return interaction.editReply("✅ Removed 1 offence and deleted the most recent case.");
 }
-
-    await db.save();
-    logAction(guild, '➖ Warn Removed', `User: ${target.tag}\nMod: ${user.tag}`);
-    return interaction.editReply("✅ Removed 1 offence and deleted the most recent case.");
-}
-            if (commandName === 'warn' && options.getSubcommand() === 'clear') {
+if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                 if (!isAtLeastAdmin) return interaction.editReply("❌ You need **Administrator+** to use this.");
                 const target = options.getUser('target'); db.offences[target.id] = 0; await db.save();
                 logAction(guild, '♻️ Warns Cleared', `User: ${target.tag}\nMod: ${user.tag}`);
