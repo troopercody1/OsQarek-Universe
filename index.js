@@ -4146,10 +4146,11 @@ client.on('messageCreate', async (message) => {
                     0xFF0000
                 );
             }
-            // result.action === 'alert_moderator' → the notifier above already
+                        // result.action === 'alert_moderator' → the notifier above already
             // posted the alert. The message is intentionally left untouched.
         }
     } // end automodEnabled check
+});
 
 // --- LOA AUTO-EXPIRY CHECKER ---
 setInterval(async () => {
