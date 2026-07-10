@@ -1,14 +1,18 @@
 /**
  * Context-aware moderation.
  *
- * Two layers:
+ * Three layers:
  *  1. Pattern layer — for things that are ALWAYS bad regardless of context
  *     (scam links, phishing patterns). No AI needed, no false-positive risk.
- *  2. AI layer — for language that depends on tone/intent (insults, hate
- *     speech, self-harm language). Uses a Hugging Face text-classification
- *     model instead of raw string matching, so "kys" in a joke between
- *     friends or a reclaimed/self-referential use of a slur isn't treated
- *     the same as a genuine targeted attack.
+ *  2. Self-harm layer — a dedicated classifier for suicide/self-harm risk,
+ *     checked independently of general toxicity. Flagged messages are
+ *     routed to a moderator alert rather than deleted, since removing the
+ *     message can isolate someone in crisis instead of getting them help.
+ *  3. Toxicity layer — for language that depends on tone/intent (insults,
+ *     hate speech). Uses a Hugging Face text-classification model instead
+ *     of raw string matching, so "kys" in a joke between friends or a
+ *     reclaimed/self-referential use of a slur isn't treated the same as
+ *     a genuine targeted attack.
  *
  * Requires: HF_TOKEN env var (https://huggingface.co/settings/tokens)
  * Install:  npm install node-fetch
@@ -110,10 +114,10 @@ async function classifySelfHarm(text) {
 }
 
 /**
- * Sends an alert to a moderator channel instead of touching the message.
- * Wire this up to whatever you actually use (Discord webhook, Slack, a
- * ticket in your own dashboard, etc). Default implementation posts to a
- * Discord webhook if MOD_ALERT_WEBHOOK_URL is set; otherwise just logs.
+ * Default alert sender — posts to a Discord webhook if MOD_ALERT_WEBHOOK_URL
+ * is set, otherwise just logs. You can ignore this entirely and pass your
+ * own `notifier` into checkMessage() instead (e.g. one that posts through
+ * your bot's existing mod-log channel via the Discord.js client).
  *
  * @param {{ text: string, scores: object, meta?: object }} payload
  */
@@ -145,15 +149,46 @@ async function alertModerators({ text, scores, meta = {} }) {
 
 /**
  * Main entry point.
+ *
  * @param {string} text
  * @param {object} [meta] - optional context (authorId, authorTag, channelId)
- *   used only for the moderator alert message.
- * @returns {Promise<{flagged: boolean, reason: string|null, action: string, scores?: object}>}
+ *   passed through to the notifier for self-harm alerts.
+ * @param {object} [opts]
+ * @param {boolean} [opts.aiEnabled=true] - when false, skips the HF calls
+ *   entirely (layers 2 & 3) and falls back to pattern matching only, plus
+ *   an optional word list. Use this to respect a bot-wide "AI disabled"
+ *   toggle without silently failing open or making network calls that'll
+ *   just error out.
+ * @param {string[]} [opts.fallbackWords] - plain word list checked with a
+ *   word-boundary regex ONLY when aiEnabled is false. Pass your existing
+ *   banned-words list here so automod still does *something* while AI is
+ *   off, instead of doing nothing but scam-link detection.
+ * @param {function} [opts.notifier] - overrides the default alertModerators
+ *   for self-harm flags, e.g. to post through your bot's own mod-log
+ *   channel instead of a raw webhook. Same signature as alertModerators.
+ * @returns {Promise<{flagged: boolean, reason: string|null, action: string, scores?: object, matchedWord?: string}>}
  *   action is one of: "delete", "alert_moderator", "none"
  */
-async function checkMessage(text, meta = {}) {
+async function checkMessage(text, meta = {}, opts = {}) {
+  const { aiEnabled = true, fallbackWords = [], notifier = alertModerators } = opts;
+
   if (matchesScamPattern(text)) {
     return { flagged: true, reason: "scam_link", action: "delete" };
+  }
+
+  if (!aiEnabled) {
+    // AI module is off bot-wide — don't call HF at all. Fall back to a
+    // plain word list if one was provided, otherwise this layer is a
+    // no-op and only the scam-pattern check above applies.
+    if (fallbackWords.length) {
+      const matchedWord = fallbackWords.find((w) =>
+        new RegExp(`\\b${w}\\b`, "i").test(text)
+      );
+      if (matchedWord) {
+        return { flagged: true, reason: "wordlist", action: "delete", matchedWord };
+      }
+    }
+    return { flagged: false, reason: null, action: "none" };
   }
 
   // Check self-harm risk first and independently — it should never be
@@ -161,7 +196,7 @@ async function checkMessage(text, meta = {}) {
   try {
     const selfHarmScores = await classifySelfHarm(text);
     if ((selfHarmScores.suicide || 0) >= SELF_HARM_THRESHOLD) {
-      await alertModerators({ text, scores: selfHarmScores, meta });
+      await notifier({ text, scores: selfHarmScores, meta });
       return {
         flagged: true,
         reason: "self_harm",
