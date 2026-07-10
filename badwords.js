@@ -15,10 +15,10 @@
  *     a genuine targeted attack.
  *
  * Requires: HF_TOKEN env var (https://huggingface.co/settings/tokens)
- * Install:  npm install node-fetch
+ * Uses the global `fetch` built into Node 18+ (no extra install needed —
+ * node-fetch v3+ is ESM-only and breaks `require()` in a CommonJS project
+ * like this one).
  */
-
-const fetch = require("node-fetch");
 
 // ---- Layer 1: deterministic pattern matches (scams/phishing) ----
 // These don't need "context" — a fake nitro gift link is always a fake
