@@ -1,4 +1,5 @@
 process.env.TZ = 'Europe/London';
+const { checkMessage } = require('./badwords.js');
 
 const dns = require('dns');
 if (typeof dns.setDefaultResultOrder === 'function') {
