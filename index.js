@@ -4080,20 +4080,76 @@ client.on('messageCreate', async (message) => {
         });
     }
 
-    // 3. Auto-Mod
+    //// 3. Auto-Mod
     if (db.automodEnabled !== false) {
-    const isIgnored = db.ignoredChannels?.some(id => String(id) === String(message.channel.id)) || false;
-    if (isIgnored) return;
+        const isIgnored = db.ignoredChannels?.some(id => String(id) === String(message.channel.id)) || false;
+        const isAdmin = message.member.permissions.has(PermissionFlagsBits.Administrator);
 
-    const _allBannedWords = [...(typeof BANNED_WORDS !== 'undefined' ? BANNED_WORDS : []), ...(db.bannedWords || [])];
-    const trigger = _allBannedWords.find(w => new RegExp(`\\b${w}\\b`, 'i').test(message.content));
-    if (trigger && !message.member.permissions.has(PermissionFlagsBits.Administrator)) {
-        await message.delete().catch(() => { });
-        const { action, caseId } = await applyEscalation(message.guild, message.author, message.member, "Auto-Mod", "SYSTEM");
-        logAction(message.guild, `🚨 Auto-Mod | Case #${caseId}`, `User: ${message.author.tag}\nTrigger: ${trigger}\nAction: ${action}`, 0xFF0000);
-    }
+        if (!isIgnored && !isAdmin) {
+            const fallbackWords = [
+                ...(typeof BANNED_WORDS !== 'undefined' ? BANNED_WORDS : []),
+                ...(db.bannedWords || []),
+            ];
+
+            const result = await checkMessage(
+                message.content,
+                {
+                    authorTag: message.author.tag,
+                    authorId: message.author.id,
+                    channelId: message.channel.id,
+                },
+                {
+                    // Respects the bot's existing AI toggle — when it's off,
+                    // checkMessage skips Hugging Face entirely and just runs
+                    // the scam-pattern + fallbackWords checks below.
+                    aiEnabled: db.aiEnabled !== false,
+                    fallbackWords,
+                    // Route self-harm alerts through the existing mod log
+                    // channel instead of a separate webhook.
+                    notifier: async ({ text, scores, meta }) => {
+                        if (!db.modLogChannel) {
+                            console.warn('Self-harm flag raised but no modLogChannel configured.');
+                            return;
+                        }
+                        const logChannel = message.guild.channels.cache.get(db.modLogChannel);
+                        if (!logChannel) return;
+
+                        const alertEmbed = new EmbedBuilder()
+                            .setTitle('⚠️ Possible Self-Harm Risk Detected')
+                            .setDescription(
+                                `**User:** ${meta.authorTag} (${meta.authorId})\n` +
+                                `**Channel:** <#${meta.channelId}>\n` +
+                                `**Confidence:** ${((scores.suicide || 0) * 100).toFixed(0)}%\n\n` +
+                                `**Message (left in place, NOT deleted):**\n${text}`
+                            )
+                            .setColor(0xE0AF68)
+                            .setTimestamp();
+
+                        await logChannel.send({ embeds: [alertEmbed] }).catch(() => {});
+                    },
+                }
+            );
+
+            if (result.action === 'delete') {
+                await message.delete().catch(() => {});
+                const { action, caseId } = await applyEscalation(
+                    message.guild,
+                    message.author,
+                    message.member,
+                    `Auto-Mod (${result.reason}${result.matchedWord ? `: ${result.matchedWord}` : ''})`,
+                    'SYSTEM'
+                );
+                logAction(
+                    message.guild,
+                    `🚨 Auto-Mod | Case #${caseId}`,
+                    `User: ${message.author.tag}\nReason: ${result.reason}\nAction: ${action}`,
+                    0xFF0000
+                );
+            }
+            // result.action === 'alert_moderator' → the notifier above already
+            // posted the alert. The message is intentionally left untouched.
+        }
     } // end automodEnabled check
-});
 
 // --- LOA AUTO-EXPIRY CHECKER ---
 setInterval(async () => {
