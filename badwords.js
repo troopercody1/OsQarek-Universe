@@ -1,11 +1,192 @@
-module.exports = [
-    "kys",
-    "kill yourself",
-    "nigger",
-    "nigga",
-    "free nitro",
-    "nitro gift",
-    "steam-gift",
-    "discord.gg/",
-    "gift.nitro"
+/**
+ * Context-aware moderation.
+ *
+ * Two layers:
+ *  1. Pattern layer — for things that are ALWAYS bad regardless of context
+ *     (scam links, phishing patterns). No AI needed, no false-positive risk.
+ *  2. AI layer — for language that depends on tone/intent (insults, hate
+ *     speech, self-harm language). Uses a Hugging Face text-classification
+ *     model instead of raw string matching, so "kys" in a joke between
+ *     friends or a reclaimed/self-referential use of a slur isn't treated
+ *     the same as a genuine targeted attack.
+ *
+ * Requires: HF_TOKEN env var (https://huggingface.co/settings/tokens)
+ * Install:  npm install node-fetch
+ */
+
+const fetch = require("node-fetch");
+
+// ---- Layer 1: deterministic pattern matches (scams/phishing) ----
+// These don't need "context" — a fake nitro gift link is always a fake
+// nitro gift link. Keep this list narrow and precise to avoid catching
+// legitimate discord.gg invites, etc.
+const SCAM_PATTERNS = [
+  /discord\.gift\/\w+/i,
+  /free\s*nitro.{0,15}(click|claim|link|http)/i,
+  /steam-?gift.{0,15}(claim|http)/i,
 ];
+
+function matchesScamPattern(text) {
+  return SCAM_PATTERNS.some((re) => re.test(text));
+}
+
+// ---- Layer 2: AI-based contextual classification ----
+// unitary/toxic-bert scores multiple categories (toxic, severe_toxic,
+// obscene, threat, insult, identity_hate). Swap the model name for
+// something like facebook/roberta-hate-speech-dynabench-r4-target if you
+// want hate-speech-specific scoring instead.
+const HF_MODEL = "unitary/toxic-bert";
+const HF_API_URL = `https://api-inference.huggingface.co/models/${HF_MODEL}`;
+
+async function classifyToxicity(text) {
+  const res = await fetch(HF_API_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.HF_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ inputs: text }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`HF API error: ${res.status} ${await res.text()}`);
+  }
+
+  const data = await res.json();
+  // Response shape: [[{label, score}, {label, score}, ...]]
+  const scores = data[0] || [];
+  return scores.reduce((acc, { label, score }) => {
+    acc[label] = score;
+    return acc;
+  }, {});
+}
+
+// Tune these per-category thresholds to taste. Higher = stricter.
+const THRESHOLDS = {
+  toxic: 0.85,
+  severe_toxic: 0.5,
+  threat: 0.6,
+  identity_hate: 0.6,
+  insult: 0.85,
+  obscene: 0.9,
+};
+
+function isFlaggedByScores(scores) {
+  return Object.entries(THRESHOLDS).some(
+    ([category, threshold]) => (scores[category] || 0) >= threshold
+  );
+}
+
+// ---- Layer 3: self-harm / suicide risk classification ----
+// Deliberately a separate model and a separate code path from general
+// toxicity. Self-harm language should never be handled the same way as
+// an insult or slur — auto-deleting it can isolate someone in crisis and
+// cut off the moment where a human could actually step in. So instead of
+// deleting, this routes to a moderator alert.
+const SELF_HARM_MODEL = "vibhorag101/roberta-base-suicide-prediction-phr-v2";
+const SELF_HARM_API_URL = `https://api-inference.huggingface.co/models/${SELF_HARM_MODEL}`;
+const SELF_HARM_THRESHOLD = 0.7; // score for the "suicide" label
+
+async function classifySelfHarm(text) {
+  const res = await fetch(SELF_HARM_API_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.HF_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ inputs: text }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`HF API error: ${res.status} ${await res.text()}`);
+  }
+
+  const data = await res.json();
+  const scores = data[0] || [];
+  return scores.reduce((acc, { label, score }) => {
+    acc[label] = score;
+    return acc;
+  }, {});
+}
+
+/**
+ * Sends an alert to a moderator channel instead of touching the message.
+ * Wire this up to whatever you actually use (Discord webhook, Slack, a
+ * ticket in your own dashboard, etc). Default implementation posts to a
+ * Discord webhook if MOD_ALERT_WEBHOOK_URL is set; otherwise just logs.
+ *
+ * @param {{ text: string, scores: object, meta?: object }} payload
+ */
+async function alertModerators({ text, scores, meta = {} }) {
+  const webhookUrl = process.env.MOD_ALERT_WEBHOOK_URL;
+  const summary =
+    `Message flagged for possible self-harm risk (score: ` +
+    `${(scores.suicide || 0).toFixed(2)}).\n` +
+    `Author: ${meta.authorTag || meta.authorId || "unknown"}\n` +
+    `Channel: ${meta.channelId || "unknown"}\n` +
+    `Message: ${text}`;
+
+  if (!webhookUrl) {
+    console.warn("MOD_ALERT_WEBHOOK_URL not set — logging alert instead:");
+    console.warn(summary);
+    return;
+  }
+
+  try {
+    await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: `⚠️ **Self-harm alert**\n${summary}` }),
+    });
+  } catch (err) {
+    console.error("Failed to send moderator alert:", err.message);
+  }
+}
+
+/**
+ * Main entry point.
+ * @param {string} text
+ * @param {object} [meta] - optional context (authorId, authorTag, channelId)
+ *   used only for the moderator alert message.
+ * @returns {Promise<{flagged: boolean, reason: string|null, action: string, scores?: object}>}
+ *   action is one of: "delete", "alert_moderator", "none"
+ */
+async function checkMessage(text, meta = {}) {
+  if (matchesScamPattern(text)) {
+    return { flagged: true, reason: "scam_link", action: "delete" };
+  }
+
+  // Check self-harm risk first and independently — it should never be
+  // short-circuited by, or lumped in with, the general toxicity check.
+  try {
+    const selfHarmScores = await classifySelfHarm(text);
+    if ((selfHarmScores.suicide || 0) >= SELF_HARM_THRESHOLD) {
+      await alertModerators({ text, scores: selfHarmScores, meta });
+      return {
+        flagged: true,
+        reason: "self_harm",
+        action: "alert_moderator",
+        scores: selfHarmScores,
+      };
+    }
+  } catch (err) {
+    console.error("Self-harm check failed:", err.message);
+    // Fall through to toxicity check rather than blocking the message.
+  }
+
+  try {
+    const scores = await classifyToxicity(text);
+    if (isFlaggedByScores(scores)) {
+      return { flagged: true, reason: "toxicity", action: "delete", scores };
+    }
+    return { flagged: false, reason: null, action: "none", scores };
+  } catch (err) {
+    // Fail open or closed depending on your risk tolerance. Fail-open
+    // (don't block on API errors) is usually right for a chat filter —
+    // don't let an HF outage take your server down.
+    console.error("Moderation AI check failed:", err.message);
+    return { flagged: false, reason: null, action: "none" };
+  }
+}
+
+module.exports = { checkMessage, alertModerators };
