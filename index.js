@@ -2332,12 +2332,27 @@ client.on('interactionCreate', async (interaction) => {
             }
             // --- 4. RECORDS & NOTES ---
             if (commandName === 'warn' && options.getSubcommand() === 'delete') {
-                if (!isMod) return interaction.editReply("❌ You need **Moderator+** to use this.");
-                const target = options.getUser('target');
-                if (db.offences[target.id] > 0) { db.offences[target.id]--; await db.save(); }
-                logAction(guild, '➖ Warn Removed', `User: ${target.tag}\nMod: ${user.tag}`);
-                return interaction.editReply("✅ Removed 1 offence.");
-            }
+    if (!isMod) return interaction.editReply("❌ You need **Moderator+** to use this.");
+    const target = options.getUser('target');
+
+    if (!db.offences[target.id] || db.offences[target.id] <= 0) {
+        return interaction.editReply("❌ That user has no offences to remove.");
+    }
+
+    // Decrement offence count
+    db.offences[target.id]--;
+
+    // Remove the most recent case for this user from db.cases
+    const lastCaseIndex = db.cases.map(c => c.userId).lastIndexOf(target.id);
+    if (lastCaseIndex !== -1) {
+        db.cases.splice(lastCaseIndex, 1);
+    }
+
+    await db.save();
+    logAction(guild, '➖ Warn Removed', `User: ${target.tag}\nMod: ${user.tag}`);
+    return interaction.editReply("✅ Removed 1 offence and deleted the most recent case.");
+}
+}
             if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                 if (!isAtLeastAdmin) return interaction.editReply("❌ You need **Administrator+** to use this.");
                 const target = options.getUser('target'); db.offences[target.id] = 0; await db.save();
