@@ -1162,7 +1162,12 @@ client.on('interactionCreate', async (interaction) => {
             if (err.code === 40060 || err.message.includes('already been sent')) {
                 return;
             }
+            // Any other failure (e.g. 10062 Unknown interaction — the interaction expired,
+            // often from a deploy/restart racing the 3s ack window) means this interaction
+            // can never be replied to. Stop here instead of falling through into command
+            // logic that will try to editReply() an interaction that was never acknowledged.
             console.error("Critical Defer Error:", err);
+            return;
         }
     }
 
