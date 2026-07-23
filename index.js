@@ -789,7 +789,16 @@ async function finalizeSongSelection(interaction, member, song) {
             selfDeaf: true
         });
 
-        await entersState(connection, VoiceConnectionStatus.Ready, 5000);
+        try {
+            // 5s was too tight for some hosts' network paths to Discord's voice
+            // media servers, causing spurious "operation was aborted" errors
+            // even though the connection would have succeeded a couple seconds later.
+            await entersState(connection, VoiceConnectionStatus.Ready, 20000);
+        } catch (err) {
+            connection.destroy();
+            console.error("❌ Voice connection failed to become ready:", err.message);
+            return interaction.followUp("❌ Couldn't establish a stable voice connection. Please try again.");
+        }
 
         const queueConstruct = {
             textChannel: interaction.channel,
