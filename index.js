@@ -335,7 +335,10 @@ app.get('/auth/callback', async (req, res) => {
         req.session.user = user;
         req.session.isHeadAdmin = true;
         res.redirect('/');
-    } catch { res.redirect('/login?error=AuthFailed'); }
+    } catch (err) {
+        console.error('❌ [oauth callback] Discord auth failed:', err.response?.data || err.message);
+        res.redirect('/login?error=AuthFailed');
+    }
 });
 
 app.get('/auth/admin', (req, res) => res.render('otp', { error: req.query.error || null, msg: req.query.msg || null }));
