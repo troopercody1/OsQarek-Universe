@@ -789,6 +789,14 @@ async function finalizeSongSelection(interaction, member, song) {
             selfDeaf: true
         });
 
+        // --- TEMP DIAGNOSTIC LOGGING (voice connection troubleshooting) ---
+        // Distinguishes "voice signalling never connects" from "signalling OK but
+        // UDP audio path never completes" — these need different fixes.
+        connection.on('debug', (msg) => console.log('🔧 [voice debug]', msg));
+        connection.on('stateChange', (oldState, newState) => {
+            console.log(`🔧 [voice state] ${oldState.status} -> ${newState.status} | networking: ${newState.networking?.state?.code ?? newState.networking?.state ?? 'n/a'}`);
+        });
+
         try {
             // 5s was too tight for some hosts' network paths to Discord's voice
             // media servers, causing spurious "operation was aborted" errors
