@@ -695,19 +695,29 @@ async function getSpotifyAccessToken(forceRefresh = false) {
 // --- SAFE COOKIE INITIALIZATION ---
 async function setupPlayDL() {
     try {
-        if (process.env.SOUNDCLOUD_CLIENT_ID) {
-            console.log("🔐 Setting up SoundCloud authentication...");
-            await play.setToken({
-                soundcloud: {
-                    client_id: process.env.SOUNDCLOUD_CLIENT_ID
-                }
-            });
-            console.log("✅ SoundCloud Authorized");
-        } else {
-            console.log("⚠️ No SoundCloud client ID found in .env");
-        }
+        console.log("🔐 Setting up SoundCloud authentication...");
+        // SoundCloud client_ids are scraped, unofficial tokens that SoundCloud
+        // periodically rotates/invalidates. A static SOUNDCLOUD_CLIENT_ID env var
+        // will eventually 401. play.getFreeClientID() scrapes a fresh, currently
+        // valid one from soundcloud.com at startup instead.
+        const clientID = await play.getFreeClientID();
+        await play.setToken({
+            soundcloud: {
+                client_id: clientID
+            }
+        });
+        console.log("✅ SoundCloud Authorized (fresh client ID fetched).");
     } catch (err) {
         console.error("❌ SoundCloud Auth Error:", err.message);
+        // Fallback: try the env var if scraping failed for some reason (e.g. network block)
+        if (process.env.SOUNDCLOUD_CLIENT_ID) {
+            try {
+                await play.setToken({ soundcloud: { client_id: process.env.SOUNDCLOUD_CLIENT_ID } });
+                console.log("⚠️ SoundCloud Authorized using fallback SOUNDCLOUD_CLIENT_ID env var (may be stale).");
+            } catch (fallbackErr) {
+                console.error("❌ SoundCloud fallback auth also failed:", fallbackErr.message);
+            }
+        }
     }
 }
 
