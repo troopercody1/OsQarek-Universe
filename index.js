@@ -4512,7 +4512,7 @@ client.on('guildMemberRemove', async (member) => {
         console.log("🎧 Play-DL initialized.");
 
         if (!process.env.TOKEN) {
-            console.error("❌ Startup aborted: process.env.TOKEN is missing/empty. Check Render's Environment tab.");
+            console.error("❌ Startup aborted: process.env.TOKEN is missing/empty. Check Railway's Variables tab.");
             return;
         }
         console.log(`🔑 Attempting Discord login... (token length: ${process.env.TOKEN.length})`);
