@@ -752,9 +752,22 @@ async function playSong(guildId, song) {
 
         serverQueue.connection.subscribe(serverQueue.player);
         serverQueue.player.removeAllListeners(AudioPlayerStatus.Idle);
+
+        const playbackStartedAt = Date.now();
         serverQueue.player.play(resource);
 
         serverQueue.player.on(AudioPlayerStatus.Idle, () => {
+            // SoundCloud serves 30s "preview" streams instead of the full track for a lot of
+            // commercial/label music when accessed without a paid/OAuth client_id. If playback
+            // ended way earlier than the track's reported duration, it's almost certainly that —
+            // not a crash — so tell the channel instead of silently vanishing.
+            const playedSeconds = (Date.now() - playbackStartedAt) / 1000;
+            if (song.duration && playedSeconds < song.duration - 10 && playedSeconds < 40) {
+                serverQueue.textChannel?.send(
+                    `⚠️ **${song.title}** cut off after ~${Math.round(playedSeconds)}s — SoundCloud likely only allows a preview clip for this track (common for major-label releases without a paid API key).`
+                ).catch(() => { });
+            }
+
             serverQueue.songs.shift();
 
             if (serverQueue.songs.length > 0) {
@@ -4547,7 +4560,7 @@ client.on('guildMemberRemove', async (member) => {
         console.log("🎧 Play-DL initialized.");
 
         if (!process.env.TOKEN) {
-            console.error("❌ Startup aborted: process.env.TOKEN is missing/empty. Check Railway's Variables tab.");
+            console.error("❌ Startup aborted: process.env.TOKEN is missing/empty. Check Render's Environment tab.");
             return;
         }
         console.log(`🔑 Attempting Discord login... (token length: ${process.env.TOKEN.length})`);
