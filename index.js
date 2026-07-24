@@ -727,7 +727,7 @@ async function playSong(guildId, song) {
     if (!serverQueue || !song) {
         if (serverQueue?.connection) serverQueue.connection.destroy();
         queue.delete(guildId);
-        return;
+        return false;
     }
 
     try {
@@ -778,15 +778,21 @@ async function playSong(guildId, song) {
             }
         });
 
+        return true;
+
     } catch (err) {
         console.error(`❌ SoundCloud Stream Error: ${err.message}`);
+        serverQueue.textChannel?.send(
+            `❌ Couldn't play **${song.title}** — this track's stream link is unavailable (it may have been removed or restricted on SoundCloud).`
+        ).catch(() => { });
 
         serverQueue.songs.shift();
         if (serverQueue.songs.length > 0) {
-            playSong(guildId, serverQueue.songs[0]);
+            return playSong(guildId, serverQueue.songs[0]);
         } else {
             serverQueue.connection.destroy();
             queue.delete(guildId);
+            return false;
         }
     }
 }
@@ -3744,8 +3750,11 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     // 🛡️ FALLBACK: If duration or reason is missing, show a clean message
                     const duration = data.duration || "Not Recorded";
                     const reason = data.reason || "No reason provided";
+                    const statusLine = data.status === 'Scheduled'
+                        ? `🕓 **Scheduled** — starts <t:${data.startDate}:f>`
+                        : `✅ **Active**`;
 
-                    return `👤 <@${id}>\n⏳ **Duration:** ${duration}\n📄 **Reason:** ${reason}\n──────────────`;
+                    return `👤 <@${id}>\n${statusLine}\n⏳ **Ends:** ${duration}\n📄 **Reason:** ${reason}\n──────────────`;
                 }).join('\n');
 
                 const embed = new EmbedBuilder()
@@ -3785,6 +3794,7 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
     if (!targetMember) return interaction.editReply({ content: "❌ Could not find that user.", flags: MessageFlags.Ephemeral });
 
     const durationInput = options.getString('duration');
+    const startInput = options.getString('start'); // optional — YYYY-MM-DD HH:mm, preset a future LOA
     const reason = options.getString('reason') || 'No reason provided';
     const dateRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
 
@@ -3799,19 +3809,47 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
         return interaction.editReply({ content: "❌ **Invalid Date!** Must be in the future.", flags: MessageFlags.Ephemeral });
     }
 
+    let startDateObj = new Date(); // defaults to "now" if no start given, same as old behavior
+    if (startInput) {
+        if (!dateRegex.test(startInput)) {
+            return interaction.editReply({ content: "❌ **Invalid Start Format!** Use: `YYYY-MM-DD HH:mm`", flags: MessageFlags.Ephemeral });
+        }
+        const startParts = startInput.split(/[- :]/);
+        startDateObj = new Date(startParts[0], startParts[1] - 1, startParts[2], startParts[3], startParts[4]);
+
+        if (isNaN(startDateObj.getTime())) {
+            return interaction.editReply({ content: "❌ **Invalid Start Date!**", flags: MessageFlags.Ephemeral });
+        }
+        if (startDateObj >= dateObj) {
+            return interaction.editReply({ content: "❌ **Start date must be before the end date.**", flags: MessageFlags.Ephemeral });
+        }
+    }
+
+    const isScheduled = startDateObj > new Date();
+
     db.loa[targetMember.id] = {
-        status: 'Approved',
+        status: isScheduled ? 'Scheduled' : 'Approved',
         timestamp: Math.floor(Date.now() / 1000),
+        startDate: Math.floor(startDateObj.getTime() / 1000),
         duration: durationInput,
         reason: reason
     };
     await db.save();
 
     if (typeof logAction === 'function') {
-        logAction(guild, '📂 LOA Admin Set', `**Staff:** ${targetMember.user.tag}\n**End Date:** ${durationInput}\n**Reason:** ${reason}\n**Set By:** ${user.tag}`, 0xFFA500);
+        logAction(
+            guild,
+            isScheduled ? '📂 LOA Pre-Scheduled' : '📂 LOA Admin Set',
+            `**Staff:** ${targetMember.user.tag}\n${isScheduled ? `**Starts:** ${startInput}\n` : ''}**End Date:** ${durationInput}\n**Reason:** ${reason}\n**Set By:** ${user.tag}`,
+            0xFFA500
+        );
     }
 
-    return interaction.editReply(`✅ LOA has been set for **${targetMember.user.tag}** until \`${durationInput}\`.`);
+    return interaction.editReply(
+        isScheduled
+            ? `✅ LOA has been **pre-scheduled** for **${targetMember.user.tag}**, starting \`${startInput}\` until \`${durationInput}\`.`
+            : `✅ LOA has been set for **${targetMember.user.tag}** until \`${durationInput}\`.`
+    );
 }
             if (commandName === 'emoji-names') {
                 const prefix = interaction.options.getString('prefix');
@@ -4286,6 +4324,52 @@ setInterval(async () => {
             }
         } catch (err) {
             console.error(`❌ Error processing LOA expiry for ${userId}:`, err);
+        }
+    }
+
+    if (changed) await db.save();
+}, 5000);
+
+// --- LOA AUTO-ACTIVATION CHECKER (pre-scheduled LOAs) ---
+setInterval(async () => {
+    const now = new Date();
+    let changed = false;
+
+    for (const userId in db.loa) {
+        const loaData = db.loa[userId];
+
+        // Only care about entries waiting to start
+        if (!loaData || loaData.status !== 'Scheduled' || !loaData.startDate) {
+            continue;
+        }
+
+        try {
+            const startDate = new Date(loaData.startDate * 1000);
+            if (isNaN(startDate.getTime())) continue;
+
+            if (now >= startDate) {
+                console.log(`▶️ LOA activated (start date reached) for: ${userId}`);
+
+                db.loa[userId].status = 'Approved';
+                changed = true;
+
+                const guild = client.guilds.cache.first();
+
+                try {
+                    const targetUser = await client.users.fetch(userId).catch(() => null);
+                    if (targetUser && guild) {
+                        await targetUser.send(`📅 **LOA Started:** Your pre-scheduled Leave of Absence in **${guild.name}** has now begun, until \`${loaData.duration}\`.`).catch(() => { });
+                    }
+                } catch (err) {
+                    console.log(`Could not DM user ${userId} about LOA activation.`);
+                }
+
+                if (guild && db.modLogChannel && typeof logAction === 'function') {
+                    logAction(guild, '📂 LOA Started', `<@${userId}>'s pre-scheduled Leave of Absence has begun (until \`${loaData.duration}\`).`, 0x3498DB);
+                }
+            }
+        } catch (err) {
+            console.error(`❌ Error processing LOA activation for ${userId}:`, err);
         }
     }
 
