@@ -3879,6 +3879,17 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
         );
     }
 
+    // Let the staff member know their LOA was set on their behalf, rather than them finding out cold
+    try {
+        const dmMessage = isScheduled
+            ? `📂 **LOA Scheduled:** An admin has pre-scheduled a Leave of Absence for you in **${guild.name}**.\n**Starts:** ${startInput}\n**Ends:** ${durationInput}\n**Reason:** ${reason}\n**Set By:** ${user.tag}`
+            : `📂 **LOA Set:** An admin has placed you on Leave of Absence in **${guild.name}**, effective immediately.\n**Ends:** ${durationInput}\n**Reason:** ${reason}\n**Set By:** ${user.tag}`;
+
+        await targetMember.send(dmMessage);
+    } catch (err) {
+        console.log(`Could not DM ${targetMember.user.tag} about their admin-set LOA (DMs likely closed).`);
+    }
+
     return interaction.editReply(
         isScheduled
             ? `✅ LOA has been **pre-scheduled** for **${targetMember.user.tag}**, starting \`${startInput}\` until \`${durationInput}\`.`
