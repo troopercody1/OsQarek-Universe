@@ -289,7 +289,8 @@ const commands = [
             type: 1,
             options: [
                 { name: 'reason', description: 'Reason', type: 3, required: true },
-                { name: 'duration', description: 'Until [YYYY-MM-DD HH:mm]', type: 3, required: true }
+                { name: 'duration', description: 'Until [YYYY-MM-DD HH:mm]', type: 3, required: true },
+                { name: 'start', description: 'Preset a future start [YYYY-MM-DD HH:mm] — leave blank to start now', type: 3, required: false }
             ]
         },
         { name: 'list', description: 'View staff currently on LOA', type: 1 },
@@ -308,6 +309,7 @@ const commands = [
             options: [
                 { name: 'user', description: 'The staff member', type: 6, required: true },
                 { name: 'duration', description: 'Until [YYYY-MM-DD HH:mm]', type: 3, required: true },
+                { name: 'start', description: 'Preset a future start [YYYY-MM-DD HH:mm] — leave blank to start now', type: 3, required: false },
                 { name: 'reason', description: 'Reason for the LOA', type: 3, required: false }
             ]
         }
