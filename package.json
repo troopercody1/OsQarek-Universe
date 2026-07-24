@@ -7,10 +7,10 @@
     "start": "node index.js"
   },
   "engines": {
-    "node": ">=18.x"
+    "node": ">=22.12.0"
   },
   "dependencies": {
-    "@discordjs/voice": "^0.17.0",
+    "@discordjs/voice": "^0.19.2",
     "@getbrevo/brevo": "^2.2.0",
     "@huggingface/inference": "^2.8.1",
     "@upstash/redis": "^1.34.3",
