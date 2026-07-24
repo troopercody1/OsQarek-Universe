@@ -451,6 +451,25 @@ const MODULE_LABELS = {
     staffToolsEnabled: 'Staff Tools',
 };
 
+// Every command name this handler actually has an `if (commandName === '...')`
+// case for. Used by the post-handler safety net below to detect a registered
+// slash command whose name doesn't match anything here (the #1 cause of a
+// command deferring successfully — showing "is thinking..." — and then never
+// getting a reply).
+const KNOWN_COMMAND_NAMES = new Set([
+    'addmod', 'afk', 'aitoggle', 'announce', 'apply', 'ask-rules', 'ban-prank',
+    'case', 'clearall', 'deletemod', 'emoji-names', 'fun', 'globalannounce',
+    'help', 'ignorechannel', 'keyboard-fix', 'latest-action', 'latest-update',
+    'loa', 'messagereset', 'mod', 'modlog', 'music', 'mute', 'nerd-mode',
+    'nickname', 'notes', 'nuke-server', 'osqareksocials', 'pfp', 'ping',
+    'ping-all-staff', 'poll', 'quiz', 'random', 'reactionrole', 'reason',
+    'reminder', 'reset-levels', 'restart', 'role', 'serverinfo', 'setchatlog',
+    'setloachannel', 'ship', 'slowmode', 'staff-leaderboard', 'staffdm',
+    'staffstats', 'stateleaderboard', 'status', 'strike', 'strikes', 'suggest',
+    'summarize', 'syncstats', 'togglecommand', 'unmute', 'userignore', 'userinfo',
+    'warn'
+]);
+
 function getDisabledModuleForCommand(commandName) {
     const normalized = commandName.toLowerCase();
     return Object.entries(MODULE_COMMANDS).find(([moduleKey, commands]) =>
@@ -4093,21 +4112,41 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                 await db.save();
             }
         } catch (err) {
-            console.error("❌ Command Error:", err);
+            console.error(`❌ Command Error on /${interaction.commandName}:`, err);
 
             // If we already told Discord to wait (deferred) or already replied, we MUST use editReply
             if (interaction.deferred || interaction.replied) {
                 await interaction.editReply({
                     content: `❌ **Error:** ${err.message}`,
                     components: []
-                }).catch(() => { });
+                }).catch((editErr) => {
+                    // Previously this failure was swallowed silently, which is exactly
+                    // what makes a broken command look like it's stuck on "thinking..."
+                    // forever with zero clue why. Always log it now.
+                    console.error(`❌ Also failed to deliver the error message for /${interaction.commandName}:`, editErr);
+                });
             } else {
                 // If the command crashed instantly before deferring
                 await interaction.reply({
                     content: `❌ **Error:** ${err.message}`,
                     ephemeral: true
-                }).catch(() => { });
+                }).catch((replyErr) => {
+                    console.error(`❌ Also failed to send the fallback reply for /${interaction.commandName}:`, replyErr);
+                });
             }
+        }
+
+        // SAFETY NET: if commandName didn't match any `if` block below — typically because
+        // the command name registered with Discord doesn't match what this handler checks
+        // for — nothing above ever calls editReply/followUp. Since the interaction was
+        // already deferred earlier, that leaves it stuck on "is thinking..." until Discord's
+        // 15-minute interaction token expires. Close that gap.
+        // (interaction.replied is NOT used here — editReply() on a deferred reply never
+        // sets it true, so checking it would fire a bogus warning after every normal command.)
+        if (!KNOWN_COMMAND_NAMES.has(interaction.commandName)) {
+            await interaction.editReply({
+                content: `⚠️ \`/${interaction.commandName}\` was acknowledged but has no matching handler. This usually means the command name registered with Discord doesn't match any case checked here — check for a naming mismatch.`
+            }).catch(() => { });
         }
     }
 });
