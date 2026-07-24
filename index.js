@@ -1247,6 +1247,7 @@ client.on('interactionCreate', async (interaction) => {
             if (action === 'approve') {
                 // 🛠️ FUZZY SCRAPER: Looks for "End" or "Reason" regardless of emojis or case
                 const dateField = originalEmbed.fields.find(f => f.name.toLowerCase().includes('end'));
+                const startField = originalEmbed.fields.find(f => f.name.toLowerCase().includes('start'));
                 const reasonField = originalEmbed.fields.find(f => f.name.toLowerCase().includes('reason'));
 
                 // 🧼 DATA CLEANER: Strips emojis so the Auto-Expiry checker only gets numbers/dashes
@@ -1262,9 +1263,22 @@ client.on('interactionCreate', async (interaction) => {
                     });
                 }
 
+                let startDateObj = new Date(); // default: starts now, same as before
+                if (startField) {
+                    const rawStart = startField.value.replace(/[^\d\- :]/g, '').trim();
+                    const startParts = rawStart.split(/[- :]/);
+                    if (startParts.length >= 5) {
+                        const parsedStart = new Date(startParts[0], startParts[1] - 1, startParts[2], startParts[3], startParts[4]);
+                        if (!isNaN(parsedStart.getTime())) startDateObj = parsedStart;
+                    }
+                }
+
+                const isScheduled = startDateObj > new Date();
+
                 db.loa[targetId] = {
-                    status: 'Approved',
+                    status: isScheduled ? 'Scheduled' : 'Approved',
                     timestamp: Math.floor(Date.now() / 1000),
+                    startDate: Math.floor(startDateObj.getTime() / 1000),
                     duration: duration,
                     reason: reason
                 };
@@ -1275,7 +1289,7 @@ client.on('interactionCreate', async (interaction) => {
             await db.save();
 
             const updatedEmbed = EmbedBuilder.from(originalEmbed)
-                .setTitle(action === 'approve' ? '✅ LOA APPROVED' : '❌ LOA DENIED')
+                .setTitle(action === 'approve' ? (db.loa[targetId]?.status === 'Scheduled' ? '🕓 LOA APPROVED (Scheduled)' : '✅ LOA APPROVED') : '❌ LOA DENIED')
                 .setColor(action === 'approve' ? 0x00FF00 : 0xFF0000)
                 .addFields({ name: 'Decision By', value: `${interaction.user.tag}`, inline: false });
 
@@ -3721,6 +3735,21 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     return interaction.editReply({ content: "❌ **Invalid Date!** Must be in the future.", flags: MessageFlags.Ephemeral });
                 }
 
+                const startInput = options.getString('start'); // optional — preset a future start
+                if (startInput) {
+                    if (!dateRegex.test(startInput)) {
+                        return interaction.editReply({ content: "❌ **Invalid Start Format!** Use: `YYYY-MM-DD HH:mm`", flags: MessageFlags.Ephemeral });
+                    }
+                    const startParts = startInput.split(/[- :]/);
+                    const startDateObj = new Date(startParts[0], startParts[1] - 1, startParts[2], startParts[3], startParts[4]);
+                    if (isNaN(startDateObj.getTime())) {
+                        return interaction.editReply({ content: "❌ **Invalid Start Date!**", flags: MessageFlags.Ephemeral });
+                    }
+                    if (startDateObj >= dateObj) {
+                        return interaction.editReply({ content: "❌ **Start date must be before the end date.**", flags: MessageFlags.Ephemeral });
+                    }
+                }
+
                 if (!db.loaChannel) return interaction.editReply("❌ LOA channel is not set up.");
                 const loaChan = guild.channels.cache.get(db.loaChannel);
 
@@ -3729,6 +3758,7 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     .setColor(0xFFA500)
                     .addFields(
                         { name: 'Staff Member', value: `<@${user.id}>`, inline: true },
+                        ...(startInput ? [{ name: 'Start Date/Time', value: `🕓 ${startInput}`, inline: true }] : []),
                         { name: 'End Date/Time', value: `📅 ${durationInput}`, inline: true },
                         { name: 'Reason', value: reason }
                     );
@@ -3739,7 +3769,11 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                 );
 
                 await loaChan.send({ embeds: [loaEmbed], components: [buttons] });
-                return interaction.editReply(`✅ Your LOA request has been submitted.`);
+                return interaction.editReply(
+                    startInput
+                        ? `✅ Your LOA request has been submitted, preset to start \`${startInput}\`.`
+                        : `✅ Your LOA request has been submitted.`
+                );
             }
 
             if (commandName === 'loa' && options.getSubcommand() === 'list') {
