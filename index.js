@@ -3251,6 +3251,14 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     // Race every fetch against a hard timeout so a stalled request can't block us.
                     const FETCH_TIMEOUT_MS = 20000;
                     const MAX_RETRIES_PER_PAGE = 3;
+
+                    // Persist progress every CLUSTER_SIZE channels instead of a single db.save()
+                    // at the very end. A full-history scan over many channels can run for minutes;
+                    // saving only once at the end means a crash/restart mid-scan (host flakiness,
+                    // Discord API hiccups, etc.) loses everything accumulated so far. Saving in
+                    // clusters bounds how much work can be lost to at most one cluster's worth.
+                    const CLUSTER_SIZE = 5;
+                    let lastSaveError = null;
                     const fetchPageWithTimeout = (channel, before) => Promise.race([
                         channel.messages.fetch({ limit: 100, before }),
                         new Promise((_, reject) => setTimeout(() => reject(new Error('Fetch timed out')), FETCH_TIMEOUT_MS))
@@ -3288,6 +3296,63 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                         ).catch(() => { });
                     };
 
+                    // --- CHECKPOINT / RESUME ---
+                    // Every MESSAGE_CHECKPOINT messages scanned (across the whole sync, all
+                    // authors — not just staff hits), pause and post a "Continue" button rather
+                    // than blasting through a potentially huge full-history scan in one go. This
+                    // gives staff a natural point to bail out or step away without losing work,
+                    // and keeps a single sync from monopolizing the interaction/rate limits for
+                    // an unbounded stretch. Progress is saved to the DB before pausing.
+                    const MESSAGE_CHECKPOINT = 10000;
+                    let totalMessagesProcessed = 0;
+                    let nextCheckpoint = MESSAGE_CHECKPOINT;
+
+                    const pauseForContinue = async () => {
+                        try {
+                            await db.save();
+                        } catch (saveErr) {
+                            console.error("❌ syncstats: checkpoint save failed:", saveErr.message);
+                        }
+
+                        const continueId = `syncstats_continue_${interaction.id}_${nextCheckpoint}`;
+                        const continueRow = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(continueId)
+                                .setLabel('▶️ Continue Scan')
+                                .setStyle(ButtonStyle.Primary)
+                        );
+
+                        const checkpointMsg = await interaction.followUp({
+                            content:
+                                `⏸️ **Checkpoint reached — ${totalMessagesProcessed.toLocaleString()} messages scanned so far.**\n` +
+                                `Progress has been saved (**${allTimeScannedCount}** staff messages all-time / **${scannedCount}** this week found so far).\n` +
+                                `Click below to continue scanning.`,
+                            components: [continueRow]
+                        });
+
+                        try {
+                            const clickInteraction = await checkpointMsg.awaitMessageComponent({
+                                filter: (btn) => btn.user.id === interaction.user.id && btn.customId === continueId,
+                                time: 24 * 60 * 60 * 1000 // 24h — give staff plenty of time to come back and click
+                            });
+                            await clickInteraction.update({
+                                content: `▶️ **Resuming scan...** (${totalMessagesProcessed.toLocaleString()} messages scanned so far)`,
+                                components: []
+                            });
+                        } catch (err) {
+                            // No click received in time — stop the scan cleanly instead of hanging forever.
+                            await checkpointMsg.edit({
+                                content:
+                                    `⏹️ **Scan paused and abandoned** — no continue click received in time.\n` +
+                                    `Progress up to **${totalMessagesProcessed.toLocaleString()}** messages was saved; re-run \`/syncstats\` to continue rebuilding stats.`,
+                                components: []
+                            }).catch(() => { });
+                            const abandonError = new Error('Sync paused and abandoned (no continue click received).');
+                            abandonError.syncPausedAbandoned = true;
+                            throw abandonError;
+                        }
+                    };
+
                     for (const [id, channel] of channelsToScan) {
                         let lastId = null;
                         let fetching = true;
@@ -3299,6 +3364,7 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                                 pagesFetched++;
                                 if (messages.size === 0) break;
                                 for (const msg of messages.values()) {
+                                    totalMessagesProcessed++;
                                     if (staffIds.includes(msg.author.id)) {
                                         db.stats[msg.author.id].allTime++;
                                         allTimeScannedCount++;
@@ -3324,23 +3390,60 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                             // Progress ticks here too (throttled inside postProgress), so a single
                             // channel with thousands of pages still visibly updates while it works.
                             await postProgress({ currentChannelName: channel.name });
+
+                            // Checkpoint: pause every MESSAGE_CHECKPOINT messages and wait for a
+                            // continue click. A single page (100 messages) can never cross more
+                            // than one checkpoint boundary, but loop just in case a checkpoint
+                            // straddles a retry/skip.
+                            while (totalMessagesProcessed >= nextCheckpoint) {
+                                await pauseForContinue();
+                                nextCheckpoint += MESSAGE_CHECKPOINT;
+                            }
                         }
 
                         channelsDone++;
+
+                        // Cluster save: persist whatever we've accumulated so far every
+                        // CLUSTER_SIZE channels, rather than waiting for the entire scan to
+                        // finish. Failures here are logged but don't abort the scan — we'll
+                        // just retry on the next cluster boundary (or the final save below).
+                        if (channelsDone % CLUSTER_SIZE === 0 || channelsDone === totalChannelsToScan) {
+                            try {
+                                await db.save();
+                                lastSaveError = null;
+                                console.log(`💾 syncstats: persisted progress after ${channelsDone}/${totalChannelsToScan} channels (${allTimeScannedCount} all-time messages so far).`);
+                            } catch (saveErr) {
+                                lastSaveError = saveErr;
+                                console.error(`❌ syncstats: cluster save failed at ${channelsDone}/${totalChannelsToScan} channels:`, saveErr.message);
+                            }
+                        }
                     }
 
                     await postProgress({ force: true });
-                    await db.save();
+
+                    // Final safety-net save in case the last cluster boundary didn't line up
+                    // exactly with totalChannelsToScan, or the last cluster save failed.
+                    try {
+                        await db.save();
+                        lastSaveError = null;
+                    } catch (saveErr) {
+                        lastSaveError = saveErr;
+                        console.error("❌ syncstats: final save failed:", saveErr.message);
+                    }
 
                     // 4. Final Output Construction
                     // Updated text to reflect Monday
                     const elapsedMs = Date.now() - syncStartedAt;
                     const elapsedString = formatDuration(elapsedMs);
 
-                    let finalReport = `✅ **Sync Complete!** (took **${elapsedString}**)\nFound **${scannedCount}** staff messages since **Monday, ${lastMonday.toDateString()}**.\n📚 Found **${allTimeScannedCount}** staff messages **all-time** (full channel history).\n👑 **Current Owner ID:** \`${guild.ownerId}\``;
+                    let finalReport = `✅ **Sync Complete!** (took **${elapsedString}**)\nFound **${scannedCount}** staff messages since **Monday, ${lastMonday.toDateString()}**.\n📚 Found **${allTimeScannedCount}** staff messages **all-time** (full channel history).\n🔎 Scanned **${totalMessagesProcessed.toLocaleString()}** messages total (all authors).\n👑 **Current Owner ID:** \`${guild.ownerId}\``;
 
                     if (skippedChannels.length > 0) {
                         finalReport += `\n⚠️ **Skipped ${skippedChannels.length} channel(s)** after repeated fetch timeouts (their all-time counts may be incomplete): \`${skippedChannels.join(', ')}\``;
+                    }
+
+                    if (lastSaveError) {
+                        finalReport += `\n⚠️ **Warning:** the final database save failed (\`${lastSaveError.message}\`). Stats were persisted through the last successful cluster save, but the very latest counts may not be saved — consider re-running.`;
                     }
 
                     if (isDebug) {
@@ -3359,6 +3462,11 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     return await interaction.editReply(finalReport);
 
                 } catch (error) {
+                    if (error.syncPausedAbandoned) {
+                        // Already reported to the user via the checkpoint message edit — no need
+                        // to also overwrite the deferred reply with a scary "Sync Failed" message.
+                        return;
+                    }
                     console.error("SyncStats Error:", error);
                     return await interaction.editReply(`❌ **Sync Failed:** ${error.message}`);
                 }
