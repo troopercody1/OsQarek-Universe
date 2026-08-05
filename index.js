@@ -3228,13 +3228,48 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     let scannedCount = 0;
                     let allTimeScannedCount = 0;
                     let channelsDone = 0;
+                    let pagesFetched = 0; // one "page" = one 100-message fetch call, our real progress unit
                     let lastProgressEditAt = Date.now();
+
+                    // Posts a throttled progress + ETA update. Uses pagesFetched (not just completed
+                    // channels) as the unit of progress, so a single channel with a huge history still
+                    // produces visible movement instead of the message sitting still until it's done.
+                    const postProgress = async ({ currentChannelName, force = false } = {}) => {
+                        const now = Date.now();
+                        if (!force && now - lastProgressEditAt < 5000) return;
+                        lastProgressEditAt = now;
+
+                        const elapsedSoFar = now - syncStartedAt;
+                        const avgPerChannel = channelsDone > 0 ? elapsedSoFar / channelsDone : null;
+                        const channelsRemaining = totalChannelsToScan - channelsDone;
+                        const percent = Math.floor((channelsDone / totalChannelsToScan) * 100);
+
+                        // Until we've finished at least one full channel we don't have a reliable
+                        // per-channel average yet, so show "Calculating..." instead of a guess.
+                        const etaLine = avgPerChannel === null
+                            ? `**ETA remaining: Calculating...**`
+                            : `**ETA remaining: ~${formatDuration(avgPerChannel * channelsRemaining)}**`;
+
+                        const scanningLine = currentChannelName
+                            ? `Currently scanning: **#${currentChannelName}** (page ${pagesFetched})\n`
+                            : '';
+
+                        await interaction.editReply(
+                            `🔍 **Syncing Universe System...** ${modeText}\n` +
+                            `Scanned **${channelsDone}/${totalChannelsToScan}** channels (${percent}%) — full history.\n` +
+                            scanningLine +
+                            `${etaLine}\n` +
+                            `💬 Staff messages found so far: **${allTimeScannedCount}** all-time / **${scannedCount}** this week.`
+                        ).catch(() => { });
+                    };
+
                     for (const [id, channel] of channelsToScan) {
                         let lastId = null;
                         let fetching = true;
                         while (fetching) {
                             try {
                                 const messages = await channel.messages.fetch({ limit: 100, before: lastId });
+                                pagesFetched++;
                                 if (messages.size === 0) break;
                                 for (const msg of messages.values()) {
                                     if (staffIds.includes(msg.author.id)) {
@@ -3249,36 +3284,16 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                                 lastId = messages.last()?.id;
                                 if (messages.size < 100) fetching = false;
                             } catch (err) { fetching = false; }
+
+                            // Progress ticks here too (throttled inside postProgress), so a single
+                            // channel with thousands of pages still visibly updates while it works.
+                            await postProgress({ currentChannelName: channel.name });
                         }
 
                         channelsDone++;
-
-                        // Post a live progress + ETA update, throttled to roughly once every 5s
-                        // (and always on the very last channel) so we don't hammer the edit-reply
-                        // endpoint on servers with a lot of channels.
-                        const now = Date.now();
-                        const isLastChannel = channelsDone === totalChannelsToScan;
-                        if (isLastChannel || now - lastProgressEditAt >= 5000) {
-                            lastProgressEditAt = now;
-                            const elapsedSoFar = now - syncStartedAt;
-                            const avgPerChannel = elapsedSoFar / channelsDone;
-                            const channelsRemaining = totalChannelsToScan - channelsDone;
-                            const estRemainingMs = avgPerChannel * channelsRemaining;
-                            const percent = Math.floor((channelsDone / totalChannelsToScan) * 100);
-
-                            const etaLine = isLastChannel
-                                ? `Finalizing...`
-                                : `**ETA remaining: ~${formatDuration(estRemainingMs)}**`;
-
-                            await interaction.editReply(
-                                `🔍 **Syncing Universe System...** ${modeText}\n` +
-                                `Scanned **${channelsDone}/${totalChannelsToScan}** channels (${percent}%) — full history.\n` +
-                                `${etaLine}\n` +
-                                `💬 Staff messages found so far: **${allTimeScannedCount}** all-time / **${scannedCount}** this week.`
-                            ).catch(() => { });
-                        }
                     }
 
+                    await postProgress({ force: true });
                     await db.save();
 
                     // 4. Final Output Construction
