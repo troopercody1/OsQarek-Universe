@@ -3139,6 +3139,7 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                 }
 
                 try {
+                    const syncStartedAt = Date.now();
                     const runAudit = interaction.options.getBoolean('audit') || false;
                     const isDryRun = interaction.options.getBoolean('dryrun') || false;
                     const isDebug = interaction.options.getBoolean('debug') || false;
@@ -3241,7 +3242,16 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
 
                     // 4. Final Output Construction
                     // Updated text to reflect Monday
-                    let finalReport = `✅ **Sync Complete!**\nFound **${scannedCount}** staff messages since **Monday, ${lastMonday.toDateString()}**.\n📚 Found **${allTimeScannedCount}** staff messages **all-time** (full channel history).\n👑 **Current Owner ID:** \`${guild.ownerId}\``;
+                    const elapsedMs = Date.now() - syncStartedAt;
+                    const elapsedSeconds = Math.floor(elapsedMs / 1000);
+                    const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+                    const elapsedRemSeconds = elapsedSeconds % 60;
+                    const elapsedTenths = Math.floor((elapsedMs % 1000) / 100);
+                    const elapsedString = elapsedMinutes > 0
+                        ? `${elapsedMinutes}m ${elapsedRemSeconds}s`
+                        : `${elapsedRemSeconds}.${elapsedTenths}s`;
+
+                    let finalReport = `✅ **Sync Complete!** (took **${elapsedString}**)\nFound **${scannedCount}** staff messages since **Monday, ${lastMonday.toDateString()}**.\n📚 Found **${allTimeScannedCount}** staff messages **all-time** (full channel history).\n👑 **Current Owner ID:** \`${guild.ownerId}\``;
 
                     if (isDebug) {
                         finalReport += `\n⚙️ **Debug (Sample Ages):** \`${auditLog.debugAges.join(', ')}\``;
