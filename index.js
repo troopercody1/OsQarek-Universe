@@ -3159,8 +3159,17 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     let auditLog = { kicked: 0, flagged: [], failed: 0, debugAges: [] };
                     let modeText = isDryRun ? '🧪 (Mode: Dry Run)' : (runAudit ? '🛡️ (Mode: Active Audit)' : '📊 (Mode: Stats Only)');
 
+                    // Exclude the bot's own automated log channels from the scan — they're filled
+                    // with bot-generated action-log embeds (not staff conversation), and on servers
+                    // that have been running a while they can balloon into hundreds of thousands of
+                    // messages, dwarfing every real channel and wrecking the ETA/scan time for zero
+                    // useful signal (log entries are authored by the bot, not by staff members).
+                    const excludedLogChannelIds = new Set([db.modLogChannel, db.chatLogChannel].filter(Boolean));
+
                     const channelsToScan = guild.channels.cache.filter(c =>
-                        c.isTextBased() && c.permissionsFor(guild.members.me).has(['ViewChannel', 'ReadMessageHistory'])
+                        c.isTextBased() &&
+                        c.permissionsFor(guild.members.me).has(['ViewChannel', 'ReadMessageHistory']) &&
+                        !excludedLogChannelIds.has(c.id)
                     );
                     const totalChannelsToScan = channelsToScan.size;
 
@@ -3180,7 +3189,10 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     const estSeconds = Math.ceil(channelsToScan.size * 1.5);
                     const timeString = estSeconds < 60 ? `${estSeconds}s` : `${Math.floor(estSeconds / 60)}m ${estSeconds % 60}s`;
 
-                    await interaction.editReply(`🔍 **Syncing Universe System...** ${modeText}\nScanning **${channelsToScan.size}** channels (full history). **ETA: at least ~${timeString}, likely longer.**`);
+                    const skippedLogNote = excludedLogChannelIds.size > 0
+                        ? ` (skipping ${excludedLogChannelIds.size} bot log channel${excludedLogChannelIds.size > 1 ? 's' : ''})`
+                        : '';
+                    await interaction.editReply(`🔍 **Syncing Universe System...** ${modeText}\nScanning **${channelsToScan.size}** channels${skippedLogNote} (full history). **ETA: at least ~${timeString}, likely longer.**`);
 
                     // 2. Security Audit Logic
                     for (const [id, member] of allMembers) {
@@ -3230,6 +3242,19 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     let channelsDone = 0;
                     let pagesFetched = 0; // one "page" = one 100-message fetch call, our real progress unit
                     let lastProgressEditAt = Date.now();
+                    let skippedChannels = [];
+
+                    // Discord.js has no built-in timeout on message fetches. On hosts with flaky
+                    // egress to Discord, a single fetch can stall forever with no error and no
+                    // resolution — the await just hangs, which freezes the whole sync (this is
+                    // exactly what "stuck at page X for 30 minutes with no movement" looks like).
+                    // Race every fetch against a hard timeout so a stalled request can't block us.
+                    const FETCH_TIMEOUT_MS = 20000;
+                    const MAX_RETRIES_PER_PAGE = 3;
+                    const fetchPageWithTimeout = (channel, before) => Promise.race([
+                        channel.messages.fetch({ limit: 100, before }),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Fetch timed out')), FETCH_TIMEOUT_MS))
+                    ]);
 
                     // Posts a throttled progress + ETA update. Uses pagesFetched (not just completed
                     // channels) as the unit of progress, so a single channel with a huge history still
@@ -3266,9 +3291,11 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     for (const [id, channel] of channelsToScan) {
                         let lastId = null;
                         let fetching = true;
+                        let retriesLeft = MAX_RETRIES_PER_PAGE;
                         while (fetching) {
                             try {
-                                const messages = await channel.messages.fetch({ limit: 100, before: lastId });
+                                const messages = await fetchPageWithTimeout(channel, lastId);
+                                retriesLeft = MAX_RETRIES_PER_PAGE; // reset once a page actually succeeds
                                 pagesFetched++;
                                 if (messages.size === 0) break;
                                 for (const msg of messages.values()) {
@@ -3283,7 +3310,16 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                                 }
                                 lastId = messages.last()?.id;
                                 if (messages.size < 100) fetching = false;
-                            } catch (err) { fetching = false; }
+                            } catch (err) {
+                                if (retriesLeft > 0) {
+                                    retriesLeft--;
+                                    console.error(`⚠️ syncstats: fetch failed in #${channel.name} (${retriesLeft} retries left): ${err.message}`);
+                                    continue; // retry the same page
+                                }
+                                console.error(`❌ syncstats: giving up on #${channel.name} after repeated failures/timeouts: ${err.message}`);
+                                skippedChannels.push(channel.name);
+                                fetching = false;
+                            }
 
                             // Progress ticks here too (throttled inside postProgress), so a single
                             // channel with thousands of pages still visibly updates while it works.
@@ -3302,6 +3338,10 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     const elapsedString = formatDuration(elapsedMs);
 
                     let finalReport = `✅ **Sync Complete!** (took **${elapsedString}**)\nFound **${scannedCount}** staff messages since **Monday, ${lastMonday.toDateString()}**.\n📚 Found **${allTimeScannedCount}** staff messages **all-time** (full channel history).\n👑 **Current Owner ID:** \`${guild.ownerId}\``;
+
+                    if (skippedChannels.length > 0) {
+                        finalReport += `\n⚠️ **Skipped ${skippedChannels.length} channel(s)** after repeated fetch timeouts (their all-time counts may be incomplete): \`${skippedChannels.join(', ')}\``;
+                    }
 
                     if (isDebug) {
                         finalReport += `\n⚙️ **Debug (Sample Ages):** \`${auditLog.debugAges.join(', ')}\``;
