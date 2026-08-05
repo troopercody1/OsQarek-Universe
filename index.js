@@ -3161,10 +3161,13 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     const channelsToScan = guild.channels.cache.filter(c =>
                         c.isTextBased() && c.permissionsFor(guild.members.me).has(['ViewChannel', 'ReadMessageHistory'])
                     );
+                    // This now walks each channel's FULL history (to rebuild all-time stats), which
+                    // takes much longer than a single Monday-to-now pass, so the old per-channel
+                    // estimate is no longer accurate — this is a rough floor, not a real ETA.
                     const estSeconds = Math.ceil(channelsToScan.size * 1.5);
                     const timeString = estSeconds < 60 ? `${estSeconds}s` : `${Math.floor(estSeconds / 60)}m ${estSeconds % 60}s`;
 
-                    await interaction.editReply(`🔍 **Syncing Universe System...** ${modeText}\nScanning **${channelsToScan.size}** channels. **ETA: ~${timeString}**`);
+                    await interaction.editReply(`🔍 **Syncing Universe System...** ${modeText}\nScanning **${channelsToScan.size}** channels (full history). **ETA: at least ~${timeString}, likely longer.**`);
 
                     // 2. Security Audit Logic
                     for (const [id, member] of allMembers) {
@@ -3202,11 +3205,15 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
 
                     if (!db.stats) db.stats = {};
                     staffIds.forEach(id => {
-                        if (!db.stats[id]) db.stats[id] = { count: 0 };
+                        if (!db.stats[id]) db.stats[id] = { count: 0, allTime: 0 };
                         db.stats[id].count = 0;
+                        db.stats[id].allTime = 0;
                     });
 
+                    // Scan the FULL history of every channel (not just back to last Monday)
+                    // so we can rebuild both the weekly count and a true all-time count in one pass.
                     let scannedCount = 0;
+                    let allTimeScannedCount = 0;
                     for (const [id, channel] of channelsToScan) {
                         let lastId = null;
                         let fetching = true;
@@ -3215,10 +3222,13 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                                 const messages = await channel.messages.fetch({ limit: 100, before: lastId });
                                 if (messages.size === 0) break;
                                 for (const msg of messages.values()) {
-                                    if (msg.createdTimestamp < startTimestamp) { fetching = false; break; }
                                     if (staffIds.includes(msg.author.id)) {
-                                        db.stats[msg.author.id].count++;
-                                        scannedCount++;
+                                        db.stats[msg.author.id].allTime++;
+                                        allTimeScannedCount++;
+                                        if (msg.createdTimestamp >= startTimestamp) {
+                                            db.stats[msg.author.id].count++;
+                                            scannedCount++;
+                                        }
                                     }
                                 }
                                 lastId = messages.last()?.id;
@@ -3231,7 +3241,7 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
 
                     // 4. Final Output Construction
                     // Updated text to reflect Monday
-                    let finalReport = `✅ **Sync Complete!**\nFound **${scannedCount}** staff messages since **Monday, ${lastMonday.toDateString()}**.\n👑 **Current Owner ID:** \`${guild.ownerId}\``;
+                    let finalReport = `✅ **Sync Complete!**\nFound **${scannedCount}** staff messages since **Monday, ${lastMonday.toDateString()}**.\n📚 Found **${allTimeScannedCount}** staff messages **all-time** (full channel history).\n👑 **Current Owner ID:** \`${guild.ownerId}\``;
 
                     if (isDebug) {
                         finalReport += `\n⚙️ **Debug (Sample Ages):** \`${auditLog.debugAges.join(', ')}\``;
@@ -3432,6 +3442,7 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     if (!req) continue;
 
                     const msgCount = stats.count || 0;
+                    const allTimeCount = stats.allTime || 0;
 
                     // Progress Calculations
                     const minPercent = req.min === 0 ? 100 : Math.min(Math.round((msgCount / req.min) * 100), 100);
@@ -3441,7 +3452,7 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     const progressEmoji = minPercent >= 100 ? '✅' : '⚠️';
 
                     description += `${progressEmoji} **${staffMember.user.username}** (${req.name})\n`;
-                    description += `💬 \`${msgCount}\` | 📉 Min: \`${minPercent}%\` | 🚀 Promo: \`${promoPercent}%\` \n\n`;
+                    description += `💬 \`${msgCount}\` | 📚 All-Time: \`${allTimeCount}\` | 📉 Min: \`${minPercent}%\` | 🚀 Promo: \`${promoPercent}%\` \n\n`;
                 }
 
                 statsEmbed.setDescription(description || "No staff activity recorded since last Monday.");
@@ -3468,6 +3479,7 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
 
                     if (!db.stats) db.stats = {};
                     const msgCount = db.stats[targetMember.id]?.count || 0;
+                    const allTimeCount = db.stats[targetMember.id]?.allTime || 0;
 
                     const requirements = [
                         { roleId: '771423764511981599', name: 'Owner', min: 0, promo: 100 },
@@ -3492,7 +3504,8 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                         description: `Tracking activity for the current cycle.`,
                         color: msgCount >= currentReq.min ? 0x2ECC71 : 0xE74C3C,
                         fields: [
-                            { name: '💬 Messages Sent', value: `**${msgCount}**`, inline: false },
+                            { name: '💬 Messages Sent (This Cycle)', value: `**${msgCount}**`, inline: true },
+                            { name: '📚 All-Time Messages', value: `**${allTimeCount}**`, inline: true },
                             {
                                 name: '📉 Weekly Minimum',
                                 value: `${msgCount >= currentReq.min ? '✅' : '❌'} (${msgCount}/${minGoal}) — **${minProgress}%**`,
@@ -3516,16 +3529,19 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                 }
             }
             if (commandName === 'messagereset' && isAtLeastAdmin) {
-                // 1. Wipe all stats in the database
-                db.stats = {};
+                // 1. Reset only the WEEKLY counts; all-time totals are preserved.
+                if (!db.stats) db.stats = {};
+                for (const id of Object.keys(db.stats)) {
+                    db.stats[id].count = 0;
+                }
                 await db.save();
 
                 // 2. Log the action with a timestamp for the audit trail
                 // Using user.username for modern Discord compatibility
-                logAction(guild, '♻️ Stats Reset', `All weekly message counts have been reset by ${interaction.user.username}`, 0xFF0000);
+                logAction(guild, '♻️ Stats Reset', `All weekly message counts have been reset by ${interaction.user.username} (all-time totals untouched)`, 0xFF0000);
 
                 // 3. Inform the admin with a clear confirmation message
-                return interaction.editReply("✅ **Weekly message counts have been reset to 0 for all staff.**\n📅 The new tracking cycle has officially started.");
+                return interaction.editReply("✅ **Weekly message counts have been reset to 0 for all staff.**\n📅 The new tracking cycle has officially started.\n📚 All-time totals were not affected.");
             }
             if (commandName === 'staffstats' && options.getSubcommand() === 'leaderboard') {
                 await interaction.deferReply();
@@ -3553,9 +3569,16 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                 // 2. Sort Weekly Messages (Top 5)
                 // Note: Since db.stats might use User IDs, keep the <@ID> format
                 const topWeekly = Object.entries(db.stats || {})
-                    .sort(([, a], [, b]) => b - a)
+                    .sort(([, a], [, b]) => (b.count || 0) - (a.count || 0))
                     .slice(0, 5)
-                    .map(([id, count], i) => `**${i + 1}.** <@${id}>: \`${count}\``)
+                    .map(([id, stats], i) => `**${i + 1}.** <@${id}>: \`${stats.count || 0}\``)
+                    .join('\n') || '*No message data recorded*';
+
+                // 2b. Sort All-Time Messages (Top 5)
+                const topAllTime = Object.entries(db.stats || {})
+                    .sort(([, a], [, b]) => (b.allTime || 0) - (a.allTime || 0))
+                    .slice(0, 5)
+                    .map(([id, stats], i) => `**${i + 1}.** <@${id}>: \`${stats.allTime || 0}\``)
                     .join('\n') || '*No message data recorded*';
 
                 // 3. Sort All-Time Actions
@@ -3580,6 +3603,7 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     .setColor(0x2b2d31) // Modern Discord dark theme color
                     .addFields(
                         { name: '✉️ Top Weekly Activity', value: topWeekly, inline: false },
+                        { name: '📚 Top All-Time Activity', value: topAllTime, inline: false },
                         { name: '🛡️ Top Moderators (Total Actions)', value: topMods, inline: false },
                         { name: '⚠️ User Watchlist (Most Warnings)', value: topWarns, inline: false }
                     )
@@ -4252,8 +4276,9 @@ client.on('messageCreate', async (message) => {
 
     // 1. Message Tracking
     if (!db.stats) db.stats = {};
-    if (!db.stats[message.author.id]) db.stats[message.author.id] = { count: 0 };
+    if (!db.stats[message.author.id]) db.stats[message.author.id] = { count: 0, allTime: 0 };
     db.stats[message.author.id].count++;
+    db.stats[message.author.id].allTime = (db.stats[message.author.id].allTime || 0) + 1;
     if (db.stats[message.author.id].count % 10 === 0) queueSave();
 
 
