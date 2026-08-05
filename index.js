@@ -3162,9 +3162,21 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     const channelsToScan = guild.channels.cache.filter(c =>
                         c.isTextBased() && c.permissionsFor(guild.members.me).has(['ViewChannel', 'ReadMessageHistory'])
                     );
+                    const totalChannelsToScan = channelsToScan.size;
+
+                    // Small helper to render a millisecond duration as "Xm Ys" or "X.Ys"
+                    const formatDuration = (ms) => {
+                        const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+                        const minutes = Math.floor(totalSeconds / 60);
+                        const remSeconds = totalSeconds % 60;
+                        const tenths = Math.floor((ms % 1000) / 100);
+                        return minutes > 0 ? `${minutes}m ${remSeconds}s` : `${remSeconds}.${tenths}s`;
+                    };
+
                     // This now walks each channel's FULL history (to rebuild all-time stats), which
                     // takes much longer than a single Monday-to-now pass, so the old per-channel
-                    // estimate is no longer accurate — this is a rough floor, not a real ETA.
+                    // estimate is no longer accurate — this is a rough floor, not a real ETA. It gets
+                    // replaced with a live, measured ETA once scanning actually starts (see below).
                     const estSeconds = Math.ceil(channelsToScan.size * 1.5);
                     const timeString = estSeconds < 60 ? `${estSeconds}s` : `${Math.floor(estSeconds / 60)}m ${estSeconds % 60}s`;
 
@@ -3215,6 +3227,8 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     // so we can rebuild both the weekly count and a true all-time count in one pass.
                     let scannedCount = 0;
                     let allTimeScannedCount = 0;
+                    let channelsDone = 0;
+                    let lastProgressEditAt = Date.now();
                     for (const [id, channel] of channelsToScan) {
                         let lastId = null;
                         let fetching = true;
@@ -3236,6 +3250,33 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                                 if (messages.size < 100) fetching = false;
                             } catch (err) { fetching = false; }
                         }
+
+                        channelsDone++;
+
+                        // Post a live progress + ETA update, throttled to roughly once every 5s
+                        // (and always on the very last channel) so we don't hammer the edit-reply
+                        // endpoint on servers with a lot of channels.
+                        const now = Date.now();
+                        const isLastChannel = channelsDone === totalChannelsToScan;
+                        if (isLastChannel || now - lastProgressEditAt >= 5000) {
+                            lastProgressEditAt = now;
+                            const elapsedSoFar = now - syncStartedAt;
+                            const avgPerChannel = elapsedSoFar / channelsDone;
+                            const channelsRemaining = totalChannelsToScan - channelsDone;
+                            const estRemainingMs = avgPerChannel * channelsRemaining;
+                            const percent = Math.floor((channelsDone / totalChannelsToScan) * 100);
+
+                            const etaLine = isLastChannel
+                                ? `Finalizing...`
+                                : `**ETA remaining: ~${formatDuration(estRemainingMs)}**`;
+
+                            await interaction.editReply(
+                                `🔍 **Syncing Universe System...** ${modeText}\n` +
+                                `Scanned **${channelsDone}/${totalChannelsToScan}** channels (${percent}%) — full history.\n` +
+                                `${etaLine}\n` +
+                                `💬 Staff messages found so far: **${allTimeScannedCount}** all-time / **${scannedCount}** this week.`
+                            ).catch(() => { });
+                        }
                     }
 
                     await db.save();
@@ -3243,13 +3284,7 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     // 4. Final Output Construction
                     // Updated text to reflect Monday
                     const elapsedMs = Date.now() - syncStartedAt;
-                    const elapsedSeconds = Math.floor(elapsedMs / 1000);
-                    const elapsedMinutes = Math.floor(elapsedSeconds / 60);
-                    const elapsedRemSeconds = elapsedSeconds % 60;
-                    const elapsedTenths = Math.floor((elapsedMs % 1000) / 100);
-                    const elapsedString = elapsedMinutes > 0
-                        ? `${elapsedMinutes}m ${elapsedRemSeconds}s`
-                        : `${elapsedRemSeconds}.${elapsedTenths}s`;
+                    const elapsedString = formatDuration(elapsedMs);
 
                     let finalReport = `✅ **Sync Complete!** (took **${elapsedString}**)\nFound **${scannedCount}** staff messages since **Monday, ${lastMonday.toDateString()}**.\n📚 Found **${allTimeScannedCount}** staff messages **all-time** (full channel history).\n👑 **Current Owner ID:** \`${guild.ownerId}\``;
 
