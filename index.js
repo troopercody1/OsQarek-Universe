@@ -3259,10 +3259,31 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     // clusters bounds how much work can be lost to at most one cluster's worth.
                     const CLUSTER_SIZE = 5;
                     let lastSaveError = null;
-                    const fetchPageWithTimeout = (channel, before) => Promise.race([
-                        channel.messages.fetch({ limit: 100, before }),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Fetch timed out')), FETCH_TIMEOUT_MS))
-                    ]);
+                    // Generic guard against calls that neither resolve nor reject — just hang.
+                    // .catch() alone does NOT protect against this (it only handles rejections),
+                    // which is exactly how this command has kept freezing partway through: any
+                    // Discord/DB call that stalls silently blocks the `await` forever with no
+                    // error to catch. Race everything network-facing against a hard timeout.
+                    const withTimeout = (promise, ms, label) => {
+                        // Swallow a late rejection from the real call after we've already timed
+                        // out and moved on, so it doesn't surface as an unhandled rejection later.
+                        promise.catch(() => { });
+                        let timer;
+                        const timeoutPromise = new Promise((_, reject) => {
+                            timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+                        });
+                        return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
+                    };
+                    const DB_SAVE_TIMEOUT_MS = 15000;
+                    const EDIT_TIMEOUT_MS = 10000;
+
+                    // cache: false is critical for large scans. Discord.js caches every fetched
+                    // message in channel.messages.cache by default and never evicts it during
+                    // this loop. Across ~900K messages that cache grows unbounded until GC
+                    // thrashes (looks exactly like a freeze) or the process OOMs outright — we
+                    // only need each page's data long enough to tally it, not to keep it around.
+                    const fetchPageWithTimeout = (channel, before) =>
+                        withTimeout(channel.messages.fetch({ limit: 100, before, cache: false }), FETCH_TIMEOUT_MS, `Fetch in #${channel.name}`);
 
                     // Posts a throttled progress + ETA update. Uses pagesFetched (not just completed
                     // channels) as the unit of progress, so a single channel with a huge history still
@@ -3287,13 +3308,23 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                             ? `Currently scanning: **#${currentChannelName}** (page ${pagesFetched})\n`
                             : '';
 
-                        await interaction.editReply(
-                            `🔍 **Syncing Universe System...** ${modeText}\n` +
-                            `Scanned **${channelsDone}/${totalChannelsToScan}** channels (${percent}%) — full history.\n` +
-                            scanningLine +
-                            `${etaLine}\n` +
-                            `💬 Staff messages found so far: **${allTimeScannedCount}** all-time / **${scannedCount}** this week.`
-                        ).catch(() => { });
+                        try {
+                            await withTimeout(
+                                interaction.editReply(
+                                    `🔍 **Syncing Universe System...** ${modeText}\n` +
+                                    `Scanned **${channelsDone}/${totalChannelsToScan}** channels (${percent}%) — full history.\n` +
+                                    scanningLine +
+                                    `${etaLine}\n` +
+                                    `💬 Staff messages found so far: **${allTimeScannedCount}** all-time / **${scannedCount}** this week.`
+                                ),
+                                EDIT_TIMEOUT_MS,
+                                'Progress editReply'
+                            );
+                        } catch (editErr) {
+                            // A stalled/failed progress update should never block the scan itself —
+                            // log it and keep going; the next tick will just catch us up.
+                            console.error(`⚠️ syncstats: progress editReply failed/stalled: ${editErr.message}`);
+                        }
                     };
 
                     // --- CHECKPOINT / RESUME ---
@@ -3309,9 +3340,9 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
 
                     const pauseForContinue = async () => {
                         try {
-                            await db.save();
+                            await withTimeout(db.save(), DB_SAVE_TIMEOUT_MS, 'db.save() at checkpoint');
                         } catch (saveErr) {
-                            console.error("❌ syncstats: checkpoint save failed:", saveErr.message);
+                            console.error("❌ syncstats: checkpoint save failed/stalled:", saveErr.message);
                         }
 
                         const continueId = `syncstats_continue_${interaction.id}_${nextCheckpoint}`;
@@ -3322,13 +3353,26 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                                 .setStyle(ButtonStyle.Primary)
                         );
 
-                        const checkpointMsg = await interaction.followUp({
-                            content:
-                                `⏸️ **Checkpoint reached — ${totalMessagesProcessed.toLocaleString()} messages scanned so far.**\n` +
-                                `Progress has been saved (**${allTimeScannedCount}** staff messages all-time / **${scannedCount}** this week found so far).\n` +
-                                `Click below to continue scanning.`,
-                            components: [continueRow]
-                        });
+                        let checkpointMsg;
+                        try {
+                            checkpointMsg = await withTimeout(
+                                interaction.followUp({
+                                    content:
+                                        `⏸️ **Checkpoint reached — ${totalMessagesProcessed.toLocaleString()} messages scanned so far.**\n` +
+                                        `Progress has been saved (**${allTimeScannedCount}** staff messages all-time / **${scannedCount}** this week found so far).\n` +
+                                        `Click below to continue scanning.`,
+                                    components: [continueRow]
+                                }),
+                                EDIT_TIMEOUT_MS,
+                                'Checkpoint followUp'
+                            );
+                        } catch (followUpErr) {
+                            // Couldn't post the checkpoint message at all — don't hang the whole
+                            // scan waiting on a button nobody can see. Log it and keep scanning;
+                            // progress up to this point is already saved above.
+                            console.error(`⚠️ syncstats: checkpoint followUp failed/stalled, skipping this pause: ${followUpErr.message}`);
+                            return;
+                        }
 
                         try {
                             const clickInteraction = await checkpointMsg.awaitMessageComponent({
@@ -3403,18 +3447,24 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
 
                         channelsDone++;
 
+                        // Belt-and-suspenders: even with cache:false on the fetch itself, messages
+                        // can still land in the cache via live gateway events firing in this
+                        // channel while we're scanning it. Clear it once we're done with the
+                        // channel so nothing lingers for the rest of the (possibly hours-long) scan.
+                        channel.messages.cache.clear();
+
                         // Cluster save: persist whatever we've accumulated so far every
                         // CLUSTER_SIZE channels, rather than waiting for the entire scan to
                         // finish. Failures here are logged but don't abort the scan — we'll
                         // just retry on the next cluster boundary (or the final save below).
                         if (channelsDone % CLUSTER_SIZE === 0 || channelsDone === totalChannelsToScan) {
                             try {
-                                await db.save();
+                                await withTimeout(db.save(), DB_SAVE_TIMEOUT_MS, 'db.save() cluster save');
                                 lastSaveError = null;
                                 console.log(`💾 syncstats: persisted progress after ${channelsDone}/${totalChannelsToScan} channels (${allTimeScannedCount} all-time messages so far).`);
                             } catch (saveErr) {
                                 lastSaveError = saveErr;
-                                console.error(`❌ syncstats: cluster save failed at ${channelsDone}/${totalChannelsToScan} channels:`, saveErr.message);
+                                console.error(`❌ syncstats: cluster save failed/stalled at ${channelsDone}/${totalChannelsToScan} channels:`, saveErr.message);
                             }
                         }
                     }
@@ -3424,11 +3474,11 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     // Final safety-net save in case the last cluster boundary didn't line up
                     // exactly with totalChannelsToScan, or the last cluster save failed.
                     try {
-                        await db.save();
+                        await withTimeout(db.save(), DB_SAVE_TIMEOUT_MS, 'db.save() final save');
                         lastSaveError = null;
                     } catch (saveErr) {
                         lastSaveError = saveErr;
-                        console.error("❌ syncstats: final save failed:", saveErr.message);
+                        console.error("❌ syncstats: final save failed/stalled:", saveErr.message);
                     }
 
                     // 4. Final Output Construction
