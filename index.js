@@ -3334,7 +3334,7 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     // gives staff a natural point to bail out or step away without losing work,
                     // and keeps a single sync from monopolizing the interaction/rate limits for
                     // an unbounded stretch. Progress is saved to the DB before pausing.
-                    const MESSAGE_CHECKPOINT = 10000;
+                    const MESSAGE_CHECKPOINT = 100000;
                     let totalMessagesProcessed = 0;
                     let nextCheckpoint = MESSAGE_CHECKPOINT;
 
