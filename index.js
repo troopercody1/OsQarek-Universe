@@ -262,6 +262,10 @@ app.use((req, res, next) => {
         '/auth/admin',
         '/auth/send-otp',
         '/auth/verify-otp',
+        '/verify',
+        '/verify/login',
+        '/verify/callback',
+        '/verify/submit',
     ];
 
     // Dynamically whitelist `/settings` for admin users
@@ -342,6 +346,111 @@ app.get('/auth/callback', async (req, res) => {
 });
 
 app.get('/auth/admin', (req, res) => res.render('otp', { error: req.query.error || null, msg: req.query.msg || null }));
+
+// --- PUBLIC VERIFICATION GATE ---
+// Lets ordinary members verify via Discord OAuth + CAPTCHA + a rules-agreement
+// checkbox, then the bot adds the configured "verified" role. This is
+// deliberately kept on its own session key (req.session.verifyUser) rather than
+// req.session.user / req.session.isHeadAdmin — those two are what checkAuth()
+// checks to grant admin dashboard access, so a member completing verification
+// must never be able to touch them.
+const VERIFY_CALLBACK_URL = process.env.VERIFY_CALLBACK_URL; // e.g. https://yourdomain.com/verify/callback
+const VERIFIED_ROLE_ID = process.env.VERIFIED_ROLE_ID;
+const HCAPTCHA_SITE_KEY = process.env.HCAPTCHA_SITE_KEY;
+const HCAPTCHA_SECRET_KEY = process.env.HCAPTCHA_SECRET_KEY;
+
+app.get('/verify', (req, res) => {
+    res.render('verify', {
+        discordUser: req.session.verifyUser || null,
+        hcaptchaSiteKey: HCAPTCHA_SITE_KEY,
+        error: req.query.error || null,
+        success: req.query.success || null,
+        stats: { botName: client?.user?.username || "OsQarek's Universe" }
+    });
+});
+
+app.get('/verify/login', (req, res) => {
+    if (!VERIFY_CALLBACK_URL) return res.redirect('/verify?error=' + encodeURIComponent('Verification is not configured yet — missing VERIFY_CALLBACK_URL.'));
+    const params = new URLSearchParams({
+        client_id: process.env.CLIENT_ID,
+        redirect_uri: VERIFY_CALLBACK_URL,
+        response_type: 'code',
+        scope: 'identify'
+    });
+    res.redirect(`https://discord.com/api/oauth2/authorize?${params.toString()}`);
+});
+
+app.get('/verify/callback', async (req, res) => {
+    const { code } = req.query;
+    if (!code) return res.redirect('/verify?error=' + encodeURIComponent('Discord login was cancelled or failed.'));
+    try {
+        const tokenResponse = await axios.post(
+            'https://discord.com/api/oauth2/token',
+            new URLSearchParams({
+                client_id: process.env.CLIENT_ID,
+                client_secret: process.env.DISCORD_CLIENT_SECRET,
+                grant_type: 'authorization_code',
+                code,
+                redirect_uri: VERIFY_CALLBACK_URL
+            }),
+            { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+        );
+        const discordUser = (await axios.get('https://discord.com/api/users/@me', {
+            headers: { Authorization: `Bearer ${tokenResponse.data.access_token}` }
+        })).data;
+
+        req.session.verifyUser = { id: discordUser.id, username: discordUser.username, avatar: discordUser.avatar };
+        res.redirect('/verify');
+    } catch (err) {
+        console.error('❌ [verify oauth] Discord auth failed:', err.response?.data || err.message);
+        res.redirect('/verify?error=' + encodeURIComponent('Discord login failed. Please try again.'));
+    }
+});
+
+app.post('/verify/submit', async (req, res) => {
+    const discordUser = req.session.verifyUser;
+    const captchaToken = req.body['h-captcha-response'];
+    const agreedToRules = req.body.agree === 'on';
+
+    if (!discordUser) return res.redirect('/verify?error=' + encodeURIComponent('Please log in with Discord first.'));
+    if (!agreedToRules) return res.redirect('/verify?error=' + encodeURIComponent('You must agree to the rules to continue.'));
+    if (!captchaToken) return res.redirect('/verify?error=' + encodeURIComponent('Please complete the CAPTCHA.'));
+    if (!VERIFIED_ROLE_ID || !HCAPTCHA_SECRET_KEY) {
+        console.error('❌ [verify submit] Missing VERIFIED_ROLE_ID or HCAPTCHA_SECRET_KEY env var.');
+        return res.redirect('/verify?error=' + encodeURIComponent('Verification is not fully configured. Contact staff.'));
+    }
+
+    try {
+        const captchaCheck = await axios.post(
+            'https://hcaptcha.com/siteverify',
+            new URLSearchParams({ secret: HCAPTCHA_SECRET_KEY, response: captchaToken }),
+            { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+        );
+        if (!captchaCheck.data.success) {
+            return res.redirect('/verify?error=' + encodeURIComponent('CAPTCHA verification failed. Please try again.'));
+        }
+
+        const guild = client?.guilds?.cache.get(process.env.GUILD_ID);
+        if (!guild) return res.redirect('/verify?error=' + encodeURIComponent('Server is temporarily unavailable. Try again shortly.'));
+
+        const member = await guild.members.fetch(discordUser.id).catch(() => null);
+        if (!member) {
+            return res.redirect('/verify?error=' + encodeURIComponent('You need to join the Discord server before verifying.'));
+        }
+
+        if (!member.roles.cache.has(VERIFIED_ROLE_ID)) {
+            await member.roles.add(VERIFIED_ROLE_ID, 'Completed website verification (CAPTCHA + rules agreement)');
+        }
+
+        logAction(guild, '✅ Member Verified', `<@${discordUser.id}> (\`${discordUser.id}\`) completed website verification.`, 0x00FF00);
+
+        delete req.session.verifyUser;
+        res.redirect('/verify?success=1');
+    } catch (err) {
+        console.error('❌ [verify submit] Verification failed:', err.response?.data || err.message);
+        res.redirect('/verify?error=' + encodeURIComponent('Something went wrong. Please try again.'));
+    }
+});
 
 app.post('/auth/send-otp', async (req, res) => {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -1056,6 +1165,189 @@ function logAction(guild, title, description, color = 0x00FF00) {
     }
 }
 
+function formatMsDuration(ms) {
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const remSeconds = totalSeconds % 60;
+    const tenths = Math.floor((ms % 1000) / 100);
+    return minutes > 0 ? `${minutes}m ${remSeconds}s` : `${remSeconds}.${tenths}s`;
+}
+
+// --- STARTUP STATS SYNC ---
+// A standalone, non-interactive counterpart to /syncstats that runs automatically
+// once on boot. Deliberately does NOT run the security audit/kick logic from the
+// slash command (that should always be an explicit admin action, never automatic),
+// and doesn't use the button-based checkpoint pause from /syncstats (there's no
+// user to click it on startup) — it just runs straight through and posts progress
+// to the mod log every PROGRESS_PERCENT_STEP% instead.
+const MIN_RESYNC_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6h — guards against back-to-back
+// full rescans if the bot restarts/crash-loops repeatedly. Adjust or remove this
+// guard (and the db.lastStatsSyncAt check below) if that's not the behavior you want.
+
+async function runStartupStatsSync(guild) {
+    if (!guild) return;
+
+    if (db.lastStatsSyncAt && (Date.now() - db.lastStatsSyncAt) < MIN_RESYNC_INTERVAL_MS) {
+        const waitLeft = formatMsDuration(MIN_RESYNC_INTERVAL_MS - (Date.now() - db.lastStatsSyncAt));
+        console.log(`📊 Startup sync: skipped — last full sync was under ${formatMsDuration(MIN_RESYNC_INTERVAL_MS)} ago (next eligible in ~${waitLeft}).`);
+        return;
+    }
+
+    // Same timeout-race guard used in /syncstats — protects against any single
+    // Discord/DB call hanging forever instead of erroring.
+    const withTimeout = (promise, ms, label) => {
+        promise.catch(() => { });
+        let timer;
+        const timeoutPromise = new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+        });
+        return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
+    };
+
+    const startedAt = Date.now();
+    console.log(`📊 Startup sync: beginning full-history stats rebuild for ${guild.name}...`);
+
+    const excludedLogChannelIds = new Set([db.modLogChannel, db.chatLogChannel].filter(Boolean));
+    const channelsToScan = guild.channels.cache.filter(c =>
+        c.isTextBased() &&
+        c.permissionsFor(guild.members.me).has(['ViewChannel', 'ReadMessageHistory']) &&
+        !excludedLogChannelIds.has(c.id)
+    );
+    const totalChannelsToScan = channelsToScan.size;
+    if (totalChannelsToScan === 0) {
+        console.log("📊 Startup sync: no scannable channels found, skipping.");
+        return;
+    }
+
+    const allMembers = await withTimeout(guild.members.fetch(), 30000, 'guild.members.fetch()').catch((err) => {
+        console.error(`❌ Startup sync: couldn't fetch guild members, aborting: ${err.message}`);
+        return null;
+    });
+    if (!allMembers) return;
+
+    const staffIds = allMembers.filter(m =>
+        m.roles.cache.has('826829037136510986') ||
+        m.roles.cache.has('772558550555295794') ||
+        m.roles.cache.has('850513087399329823') ||
+        m.roles.cache.has('1511810524818440243') ||
+        m.roles.cache.has('771423764511981599')
+    ).map(m => m.id);
+
+    if (!db.stats) db.stats = {};
+    staffIds.forEach(id => {
+        if (!db.stats[id]) db.stats[id] = { count: 0, allTime: 0 };
+        db.stats[id].count = 0;
+        db.stats[id].allTime = 0;
+    });
+
+    const lastMonday = new Date();
+    lastMonday.setHours(0, 0, 0, 0);
+    const day = lastMonday.getDay();
+    const diff = (day === 0 ? 6 : day - 1);
+    lastMonday.setDate(lastMonday.getDate() - diff);
+    const startTimestamp = lastMonday.getTime();
+
+    const FETCH_TIMEOUT_MS = 20000;
+    const MAX_RETRIES_PER_PAGE = 3;
+    const CLUSTER_SIZE = 5;
+    const DB_SAVE_TIMEOUT_MS = 15000;
+    const PROGRESS_PERCENT_STEP = 10;
+
+    let scannedCount = 0;
+    let allTimeScannedCount = 0;
+    let channelsDone = 0;
+    let skippedChannels = [];
+    let lastReportedPercent = 0;
+
+    logAction(
+        guild,
+        '📊 Startup Stats Sync Starting',
+        `Rebuilding staff stats from full channel history across **${totalChannelsToScan}** channels. This can take a while on large servers — progress every ${PROGRESS_PERCENT_STEP}%.`,
+        0x5865F2
+    );
+
+    for (const [id, channel] of channelsToScan) {
+        let lastId = null;
+        let fetching = true;
+        let retriesLeft = MAX_RETRIES_PER_PAGE;
+
+        while (fetching) {
+            try {
+                const messages = await withTimeout(
+                    channel.messages.fetch({ limit: 100, before: lastId, cache: false }),
+                    FETCH_TIMEOUT_MS,
+                    `Fetch in #${channel.name}`
+                );
+                retriesLeft = MAX_RETRIES_PER_PAGE;
+                if (messages.size === 0) break;
+                for (const msg of messages.values()) {
+                    if (staffIds.includes(msg.author.id)) {
+                        db.stats[msg.author.id].allTime++;
+                        allTimeScannedCount++;
+                        if (msg.createdTimestamp >= startTimestamp) {
+                            db.stats[msg.author.id].count++;
+                            scannedCount++;
+                        }
+                    }
+                }
+                lastId = messages.last()?.id;
+                if (messages.size < 100) fetching = false;
+            } catch (err) {
+                if (retriesLeft > 0) {
+                    retriesLeft--;
+                    console.error(`⚠️ Startup sync: fetch failed in #${channel.name} (${retriesLeft} retries left): ${err.message}`);
+                    continue;
+                }
+                console.error(`❌ Startup sync: giving up on #${channel.name} after repeated failures/timeouts: ${err.message}`);
+                skippedChannels.push(channel.name);
+                fetching = false;
+            }
+        }
+
+        // Same memory guard as /syncstats — without this, a ~900K-message server
+        // can accumulate enough cached messages to freeze the process via GC thrashing.
+        channel.messages.cache.clear();
+        channelsDone++;
+
+        if (channelsDone % CLUSTER_SIZE === 0 || channelsDone === totalChannelsToScan) {
+            try {
+                await withTimeout(db.save(), DB_SAVE_TIMEOUT_MS, 'db.save() startup sync cluster');
+            } catch (saveErr) {
+                console.error(`❌ Startup sync: cluster save failed/stalled at ${channelsDone}/${totalChannelsToScan}: ${saveErr.message}`);
+            }
+        }
+
+        const percent = Math.floor((channelsDone / totalChannelsToScan) * 100);
+        const currentStep = Math.floor(percent / PROGRESS_PERCENT_STEP);
+        if (currentStep > lastReportedPercent || channelsDone === totalChannelsToScan) {
+            lastReportedPercent = currentStep;
+            logAction(
+                guild,
+                '📊 Startup Stats Sync Progress',
+                `**${percent}%** (${channelsDone}/${totalChannelsToScan} channels) — ` +
+                `**${allTimeScannedCount}** staff messages all-time / **${scannedCount}** this week so far.\n` +
+                `Elapsed: ${formatMsDuration(Date.now() - startedAt)}`,
+                0x5865F2
+            );
+        }
+    }
+
+    db.lastStatsSyncAt = Date.now();
+    try {
+        await withTimeout(db.save(), DB_SAVE_TIMEOUT_MS, 'db.save() startup sync final');
+    } catch (saveErr) {
+        console.error(`❌ Startup sync: final save failed/stalled: ${saveErr.message}`);
+    }
+
+    let summary = `✅ Done in **${formatMsDuration(Date.now() - startedAt)}**.\n` +
+        `Found **${allTimeScannedCount}** staff messages all-time, **${scannedCount}** this week.`;
+    if (skippedChannels.length > 0) {
+        summary += `\n⚠️ Skipped ${skippedChannels.length} channel(s) after repeated failures: \`${skippedChannels.join(', ')}\``;
+    }
+    logAction(guild, '✅ Startup Stats Sync Complete', summary, 0x00FF00);
+    console.log(`✅ Startup sync complete for ${guild.name}: ${allTimeScannedCount} all-time staff messages (took ${formatMsDuration(Date.now() - startedAt)}).`);
+}
+
 // --- DATABASE SAVING SYSTEM ---
 function saveDB() {
     try {
@@ -1137,6 +1429,16 @@ client.once('clientReady', async () => {
         if (guild) {
             logAction(guild, '🚀 System Online', 'All modules active. Status cycler & logging started.', 0x00FF00);
         }
+    }
+
+    // 6. Startup Stats Sync — fire-and-forget so it doesn't block the rest of
+    // startup or command handling. It reports its own progress via logAction,
+    // so nothing here needs to await or watch it.
+    const syncGuild = client.guilds.cache.first();
+    if (syncGuild) {
+        runStartupStatsSync(syncGuild).catch((err) => {
+            console.error("❌ Startup sync crashed:", err.message);
+        });
     }
 });
 
@@ -3139,6 +3441,7 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                 }
 
                 try {
+                    const syncStartedAt = Date.now();
                     const runAudit = interaction.options.getBoolean('audit') || false;
                     const isDryRun = interaction.options.getBoolean('dryrun') || false;
                     const isDebug = interaction.options.getBoolean('debug') || false;
@@ -3158,13 +3461,40 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     let auditLog = { kicked: 0, flagged: [], failed: 0, debugAges: [] };
                     let modeText = isDryRun ? '🧪 (Mode: Dry Run)' : (runAudit ? '🛡️ (Mode: Active Audit)' : '📊 (Mode: Stats Only)');
 
+                    // Exclude the bot's own automated log channels from the scan — they're filled
+                    // with bot-generated action-log embeds (not staff conversation), and on servers
+                    // that have been running a while they can balloon into hundreds of thousands of
+                    // messages, dwarfing every real channel and wrecking the ETA/scan time for zero
+                    // useful signal (log entries are authored by the bot, not by staff members).
+                    const excludedLogChannelIds = new Set([db.modLogChannel, db.chatLogChannel].filter(Boolean));
+
                     const channelsToScan = guild.channels.cache.filter(c =>
-                        c.isTextBased() && c.permissionsFor(guild.members.me).has(['ViewChannel', 'ReadMessageHistory'])
+                        c.isTextBased() &&
+                        c.permissionsFor(guild.members.me).has(['ViewChannel', 'ReadMessageHistory']) &&
+                        !excludedLogChannelIds.has(c.id)
                     );
+                    const totalChannelsToScan = channelsToScan.size;
+
+                    // Small helper to render a millisecond duration as "Xm Ys" or "X.Ys"
+                    const formatDuration = (ms) => {
+                        const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+                        const minutes = Math.floor(totalSeconds / 60);
+                        const remSeconds = totalSeconds % 60;
+                        const tenths = Math.floor((ms % 1000) / 100);
+                        return minutes > 0 ? `${minutes}m ${remSeconds}s` : `${remSeconds}.${tenths}s`;
+                    };
+
+                    // This now walks each channel's FULL history (to rebuild all-time stats), which
+                    // takes much longer than a single Monday-to-now pass, so the old per-channel
+                    // estimate is no longer accurate — this is a rough floor, not a real ETA. It gets
+                    // replaced with a live, measured ETA once scanning actually starts (see below).
                     const estSeconds = Math.ceil(channelsToScan.size * 1.5);
                     const timeString = estSeconds < 60 ? `${estSeconds}s` : `${Math.floor(estSeconds / 60)}m ${estSeconds % 60}s`;
 
-                    await interaction.editReply(`🔍 **Syncing Universe System...** ${modeText}\nScanning **${channelsToScan.size}** channels. **ETA: ~${timeString}**`);
+                    const skippedLogNote = excludedLogChannelIds.size > 0
+                        ? ` (skipping ${excludedLogChannelIds.size} bot log channel${excludedLogChannelIds.size > 1 ? 's' : ''})`
+                        : '';
+                    await interaction.editReply(`🔍 **Syncing Universe System...** ${modeText}\nScanning **${channelsToScan.size}** channels${skippedLogNote} (full history). **ETA: at least ~${timeString}, likely longer.**`);
 
                     // 2. Security Audit Logic
                     for (const [id, member] of allMembers) {
@@ -3202,36 +3532,271 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
 
                     if (!db.stats) db.stats = {};
                     staffIds.forEach(id => {
-                        if (!db.stats[id]) db.stats[id] = { count: 0 };
+                        if (!db.stats[id]) db.stats[id] = { count: 0, allTime: 0 };
                         db.stats[id].count = 0;
+                        db.stats[id].allTime = 0;
                     });
 
+                    // Scan the FULL history of every channel (not just back to last Monday)
+                    // so we can rebuild both the weekly count and a true all-time count in one pass.
                     let scannedCount = 0;
+                    let allTimeScannedCount = 0;
+                    let channelsDone = 0;
+                    let pagesFetched = 0; // one "page" = one 100-message fetch call, our real progress unit
+                    let lastProgressEditAt = Date.now();
+                    let skippedChannels = [];
+
+                    // Discord.js has no built-in timeout on message fetches. On hosts with flaky
+                    // egress to Discord, a single fetch can stall forever with no error and no
+                    // resolution — the await just hangs, which freezes the whole sync (this is
+                    // exactly what "stuck at page X for 30 minutes with no movement" looks like).
+                    // Race every fetch against a hard timeout so a stalled request can't block us.
+                    const FETCH_TIMEOUT_MS = 20000;
+                    const MAX_RETRIES_PER_PAGE = 3;
+
+                    // Persist progress every CLUSTER_SIZE channels instead of a single db.save()
+                    // at the very end. A full-history scan over many channels can run for minutes;
+                    // saving only once at the end means a crash/restart mid-scan (host flakiness,
+                    // Discord API hiccups, etc.) loses everything accumulated so far. Saving in
+                    // clusters bounds how much work can be lost to at most one cluster's worth.
+                    const CLUSTER_SIZE = 5;
+                    let lastSaveError = null;
+                    // Generic guard against calls that neither resolve nor reject — just hang.
+                    // .catch() alone does NOT protect against this (it only handles rejections),
+                    // which is exactly how this command has kept freezing partway through: any
+                    // Discord/DB call that stalls silently blocks the `await` forever with no
+                    // error to catch. Race everything network-facing against a hard timeout.
+                    const withTimeout = (promise, ms, label) => {
+                        // Swallow a late rejection from the real call after we've already timed
+                        // out and moved on, so it doesn't surface as an unhandled rejection later.
+                        promise.catch(() => { });
+                        let timer;
+                        const timeoutPromise = new Promise((_, reject) => {
+                            timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+                        });
+                        return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
+                    };
+                    const DB_SAVE_TIMEOUT_MS = 15000;
+                    const EDIT_TIMEOUT_MS = 10000;
+
+                    // cache: false is critical for large scans. Discord.js caches every fetched
+                    // message in channel.messages.cache by default and never evicts it during
+                    // this loop. Across ~900K messages that cache grows unbounded until GC
+                    // thrashes (looks exactly like a freeze) or the process OOMs outright — we
+                    // only need each page's data long enough to tally it, not to keep it around.
+                    const fetchPageWithTimeout = (channel, before) =>
+                        withTimeout(channel.messages.fetch({ limit: 100, before, cache: false }), FETCH_TIMEOUT_MS, `Fetch in #${channel.name}`);
+
+                    // Posts a throttled progress + ETA update. Uses pagesFetched (not just completed
+                    // channels) as the unit of progress, so a single channel with a huge history still
+                    // produces visible movement instead of the message sitting still until it's done.
+                    const postProgress = async ({ currentChannelName, force = false } = {}) => {
+                        const now = Date.now();
+                        if (!force && now - lastProgressEditAt < 5000) return;
+                        lastProgressEditAt = now;
+
+                        const elapsedSoFar = now - syncStartedAt;
+                        const avgPerChannel = channelsDone > 0 ? elapsedSoFar / channelsDone : null;
+                        const channelsRemaining = totalChannelsToScan - channelsDone;
+                        const percent = Math.floor((channelsDone / totalChannelsToScan) * 100);
+
+                        // Until we've finished at least one full channel we don't have a reliable
+                        // per-channel average yet, so show "Calculating..." instead of a guess.
+                        const etaLine = avgPerChannel === null
+                            ? `**ETA remaining: Calculating...**`
+                            : `**ETA remaining: ~${formatDuration(avgPerChannel * channelsRemaining)}**`;
+
+                        const scanningLine = currentChannelName
+                            ? `Currently scanning: **#${currentChannelName}** (page ${pagesFetched})\n`
+                            : '';
+
+                        try {
+                            await withTimeout(
+                                interaction.editReply(
+                                    `🔍 **Syncing Universe System...** ${modeText}\n` +
+                                    `Scanned **${channelsDone}/${totalChannelsToScan}** channels (${percent}%) — full history.\n` +
+                                    scanningLine +
+                                    `${etaLine}\n` +
+                                    `💬 Staff messages found so far: **${allTimeScannedCount}** all-time / **${scannedCount}** this week.`
+                                ),
+                                EDIT_TIMEOUT_MS,
+                                'Progress editReply'
+                            );
+                        } catch (editErr) {
+                            // A stalled/failed progress update should never block the scan itself —
+                            // log it and keep going; the next tick will just catch us up.
+                            console.error(`⚠️ syncstats: progress editReply failed/stalled: ${editErr.message}`);
+                        }
+                    };
+
+                    // --- CHECKPOINT / RESUME ---
+                    // Every MESSAGE_CHECKPOINT messages scanned (across the whole sync, all
+                    // authors — not just staff hits), pause and post a "Continue" button rather
+                    // than blasting through a potentially huge full-history scan in one go. This
+                    // gives staff a natural point to bail out or step away without losing work,
+                    // and keeps a single sync from monopolizing the interaction/rate limits for
+                    // an unbounded stretch. Progress is saved to the DB before pausing.
+                    const MESSAGE_CHECKPOINT = 10000;
+                    let totalMessagesProcessed = 0;
+                    let nextCheckpoint = MESSAGE_CHECKPOINT;
+
+                    const pauseForContinue = async () => {
+                        try {
+                            await withTimeout(db.save(), DB_SAVE_TIMEOUT_MS, 'db.save() at checkpoint');
+                        } catch (saveErr) {
+                            console.error("❌ syncstats: checkpoint save failed/stalled:", saveErr.message);
+                        }
+
+                        const continueId = `syncstats_continue_${interaction.id}_${nextCheckpoint}`;
+                        const continueRow = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(continueId)
+                                .setLabel('▶️ Continue Scan')
+                                .setStyle(ButtonStyle.Primary)
+                        );
+
+                        let checkpointMsg;
+                        try {
+                            checkpointMsg = await withTimeout(
+                                interaction.followUp({
+                                    content:
+                                        `⏸️ **Checkpoint reached — ${totalMessagesProcessed.toLocaleString()} messages scanned so far.**\n` +
+                                        `Progress has been saved (**${allTimeScannedCount}** staff messages all-time / **${scannedCount}** this week found so far).\n` +
+                                        `Click below to continue scanning.`,
+                                    components: [continueRow]
+                                }),
+                                EDIT_TIMEOUT_MS,
+                                'Checkpoint followUp'
+                            );
+                        } catch (followUpErr) {
+                            // Couldn't post the checkpoint message at all — don't hang the whole
+                            // scan waiting on a button nobody can see. Log it and keep scanning;
+                            // progress up to this point is already saved above.
+                            console.error(`⚠️ syncstats: checkpoint followUp failed/stalled, skipping this pause: ${followUpErr.message}`);
+                            return;
+                        }
+
+                        try {
+                            const clickInteraction = await checkpointMsg.awaitMessageComponent({
+                                filter: (btn) => btn.user.id === interaction.user.id && btn.customId === continueId,
+                                time: 24 * 60 * 60 * 1000 // 24h — give staff plenty of time to come back and click
+                            });
+                            await clickInteraction.update({
+                                content: `▶️ **Resuming scan...** (${totalMessagesProcessed.toLocaleString()} messages scanned so far)`,
+                                components: []
+                            });
+                        } catch (err) {
+                            // No click received in time — stop the scan cleanly instead of hanging forever.
+                            await checkpointMsg.edit({
+                                content:
+                                    `⏹️ **Scan paused and abandoned** — no continue click received in time.\n` +
+                                    `Progress up to **${totalMessagesProcessed.toLocaleString()}** messages was saved; re-run \`/syncstats\` to continue rebuilding stats.`,
+                                components: []
+                            }).catch(() => { });
+                            const abandonError = new Error('Sync paused and abandoned (no continue click received).');
+                            abandonError.syncPausedAbandoned = true;
+                            throw abandonError;
+                        }
+                    };
+
                     for (const [id, channel] of channelsToScan) {
                         let lastId = null;
                         let fetching = true;
+                        let retriesLeft = MAX_RETRIES_PER_PAGE;
                         while (fetching) {
                             try {
-                                const messages = await channel.messages.fetch({ limit: 100, before: lastId });
+                                const messages = await fetchPageWithTimeout(channel, lastId);
+                                retriesLeft = MAX_RETRIES_PER_PAGE; // reset once a page actually succeeds
+                                pagesFetched++;
                                 if (messages.size === 0) break;
                                 for (const msg of messages.values()) {
-                                    if (msg.createdTimestamp < startTimestamp) { fetching = false; break; }
+                                    totalMessagesProcessed++;
                                     if (staffIds.includes(msg.author.id)) {
-                                        db.stats[msg.author.id].count++;
-                                        scannedCount++;
+                                        db.stats[msg.author.id].allTime++;
+                                        allTimeScannedCount++;
+                                        if (msg.createdTimestamp >= startTimestamp) {
+                                            db.stats[msg.author.id].count++;
+                                            scannedCount++;
+                                        }
                                     }
                                 }
                                 lastId = messages.last()?.id;
                                 if (messages.size < 100) fetching = false;
-                            } catch (err) { fetching = false; }
+                            } catch (err) {
+                                if (retriesLeft > 0) {
+                                    retriesLeft--;
+                                    console.error(`⚠️ syncstats: fetch failed in #${channel.name} (${retriesLeft} retries left): ${err.message}`);
+                                    continue; // retry the same page
+                                }
+                                console.error(`❌ syncstats: giving up on #${channel.name} after repeated failures/timeouts: ${err.message}`);
+                                skippedChannels.push(channel.name);
+                                fetching = false;
+                            }
+
+                            // Progress ticks here too (throttled inside postProgress), so a single
+                            // channel with thousands of pages still visibly updates while it works.
+                            await postProgress({ currentChannelName: channel.name });
+
+                            // Checkpoint: pause every MESSAGE_CHECKPOINT messages and wait for a
+                            // continue click. A single page (100 messages) can never cross more
+                            // than one checkpoint boundary, but loop just in case a checkpoint
+                            // straddles a retry/skip.
+                            while (totalMessagesProcessed >= nextCheckpoint) {
+                                await pauseForContinue();
+                                nextCheckpoint += MESSAGE_CHECKPOINT;
+                            }
+                        }
+
+                        channelsDone++;
+
+                        // Belt-and-suspenders: even with cache:false on the fetch itself, messages
+                        // can still land in the cache via live gateway events firing in this
+                        // channel while we're scanning it. Clear it once we're done with the
+                        // channel so nothing lingers for the rest of the (possibly hours-long) scan.
+                        channel.messages.cache.clear();
+
+                        // Cluster save: persist whatever we've accumulated so far every
+                        // CLUSTER_SIZE channels, rather than waiting for the entire scan to
+                        // finish. Failures here are logged but don't abort the scan — we'll
+                        // just retry on the next cluster boundary (or the final save below).
+                        if (channelsDone % CLUSTER_SIZE === 0 || channelsDone === totalChannelsToScan) {
+                            try {
+                                await withTimeout(db.save(), DB_SAVE_TIMEOUT_MS, 'db.save() cluster save');
+                                lastSaveError = null;
+                                console.log(`💾 syncstats: persisted progress after ${channelsDone}/${totalChannelsToScan} channels (${allTimeScannedCount} all-time messages so far).`);
+                            } catch (saveErr) {
+                                lastSaveError = saveErr;
+                                console.error(`❌ syncstats: cluster save failed/stalled at ${channelsDone}/${totalChannelsToScan} channels:`, saveErr.message);
+                            }
                         }
                     }
 
-                    await db.save();
+                    await postProgress({ force: true });
+
+                    // Final safety-net save in case the last cluster boundary didn't line up
+                    // exactly with totalChannelsToScan, or the last cluster save failed.
+                    try {
+                        await withTimeout(db.save(), DB_SAVE_TIMEOUT_MS, 'db.save() final save');
+                        lastSaveError = null;
+                    } catch (saveErr) {
+                        lastSaveError = saveErr;
+                        console.error("❌ syncstats: final save failed/stalled:", saveErr.message);
+                    }
 
                     // 4. Final Output Construction
                     // Updated text to reflect Monday
-                    let finalReport = `✅ **Sync Complete!**\nFound **${scannedCount}** staff messages since **Monday, ${lastMonday.toDateString()}**.\n👑 **Current Owner ID:** \`${guild.ownerId}\``;
+                    const elapsedMs = Date.now() - syncStartedAt;
+                    const elapsedString = formatDuration(elapsedMs);
+
+                    let finalReport = `✅ **Sync Complete!** (took **${elapsedString}**)\nFound **${scannedCount}** staff messages since **Monday, ${lastMonday.toDateString()}**.\n📚 Found **${allTimeScannedCount}** staff messages **all-time** (full channel history).\n🔎 Scanned **${totalMessagesProcessed.toLocaleString()}** messages total (all authors).\n👑 **Current Owner ID:** \`${guild.ownerId}\``;
+
+                    if (skippedChannels.length > 0) {
+                        finalReport += `\n⚠️ **Skipped ${skippedChannels.length} channel(s)** after repeated fetch timeouts (their all-time counts may be incomplete): \`${skippedChannels.join(', ')}\``;
+                    }
+
+                    if (lastSaveError) {
+                        finalReport += `\n⚠️ **Warning:** the final database save failed (\`${lastSaveError.message}\`). Stats were persisted through the last successful cluster save, but the very latest counts may not be saved — consider re-running.`;
+                    }
 
                     if (isDebug) {
                         finalReport += `\n⚙️ **Debug (Sample Ages):** \`${auditLog.debugAges.join(', ')}\``;
@@ -3249,6 +3814,11 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     return await interaction.editReply(finalReport);
 
                 } catch (error) {
+                    if (error.syncPausedAbandoned) {
+                        // Already reported to the user via the checkpoint message edit — no need
+                        // to also overwrite the deferred reply with a scary "Sync Failed" message.
+                        return;
+                    }
                     console.error("SyncStats Error:", error);
                     return await interaction.editReply(`❌ **Sync Failed:** ${error.message}`);
                 }
@@ -3432,6 +4002,7 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     if (!req) continue;
 
                     const msgCount = stats.count || 0;
+                    const allTimeCount = stats.allTime || 0;
 
                     // Progress Calculations
                     const minPercent = req.min === 0 ? 100 : Math.min(Math.round((msgCount / req.min) * 100), 100);
@@ -3441,7 +4012,7 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     const progressEmoji = minPercent >= 100 ? '✅' : '⚠️';
 
                     description += `${progressEmoji} **${staffMember.user.username}** (${req.name})\n`;
-                    description += `💬 \`${msgCount}\` | 📉 Min: \`${minPercent}%\` | 🚀 Promo: \`${promoPercent}%\` \n\n`;
+                    description += `💬 \`${msgCount}\` | 📚 All-Time: \`${allTimeCount}\` | 📉 Min: \`${minPercent}%\` | 🚀 Promo: \`${promoPercent}%\` \n\n`;
                 }
 
                 statsEmbed.setDescription(description || "No staff activity recorded since last Monday.");
@@ -3468,6 +4039,7 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
 
                     if (!db.stats) db.stats = {};
                     const msgCount = db.stats[targetMember.id]?.count || 0;
+                    const allTimeCount = db.stats[targetMember.id]?.allTime || 0;
 
                     const requirements = [
                         { roleId: '771423764511981599', name: 'Owner', min: 0, promo: 100 },
@@ -3492,7 +4064,8 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                         description: `Tracking activity for the current cycle.`,
                         color: msgCount >= currentReq.min ? 0x2ECC71 : 0xE74C3C,
                         fields: [
-                            { name: '💬 Messages Sent', value: `**${msgCount}**`, inline: false },
+                            { name: '💬 Messages Sent (This Cycle)', value: `**${msgCount}**`, inline: true },
+                            { name: '📚 All-Time Messages', value: `**${allTimeCount}**`, inline: true },
                             {
                                 name: '📉 Weekly Minimum',
                                 value: `${msgCount >= currentReq.min ? '✅' : '❌'} (${msgCount}/${minGoal}) — **${minProgress}%**`,
@@ -3516,16 +4089,19 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                 }
             }
             if (commandName === 'messagereset' && isAtLeastAdmin) {
-                // 1. Wipe all stats in the database
-                db.stats = {};
+                // 1. Reset only the WEEKLY counts; all-time totals are preserved.
+                if (!db.stats) db.stats = {};
+                for (const id of Object.keys(db.stats)) {
+                    db.stats[id].count = 0;
+                }
                 await db.save();
 
                 // 2. Log the action with a timestamp for the audit trail
                 // Using user.username for modern Discord compatibility
-                logAction(guild, '♻️ Stats Reset', `All weekly message counts have been reset by ${interaction.user.username}`, 0xFF0000);
+                logAction(guild, '♻️ Stats Reset', `All weekly message counts have been reset by ${interaction.user.username} (all-time totals untouched)`, 0xFF0000);
 
                 // 3. Inform the admin with a clear confirmation message
-                return interaction.editReply("✅ **Weekly message counts have been reset to 0 for all staff.**\n📅 The new tracking cycle has officially started.");
+                return interaction.editReply("✅ **Weekly message counts have been reset to 0 for all staff.**\n📅 The new tracking cycle has officially started.\n📚 All-time totals were not affected.");
             }
             if (commandName === 'staffstats' && options.getSubcommand() === 'leaderboard') {
                 await interaction.deferReply();
@@ -3553,9 +4129,16 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                 // 2. Sort Weekly Messages (Top 5)
                 // Note: Since db.stats might use User IDs, keep the <@ID> format
                 const topWeekly = Object.entries(db.stats || {})
-                    .sort(([, a], [, b]) => b - a)
+                    .sort(([, a], [, b]) => (b.count || 0) - (a.count || 0))
                     .slice(0, 5)
-                    .map(([id, count], i) => `**${i + 1}.** <@${id}>: \`${count}\``)
+                    .map(([id, stats], i) => `**${i + 1}.** <@${id}>: \`${stats.count || 0}\``)
+                    .join('\n') || '*No message data recorded*';
+
+                // 2b. Sort All-Time Messages (Top 5)
+                const topAllTime = Object.entries(db.stats || {})
+                    .sort(([, a], [, b]) => (b.allTime || 0) - (a.allTime || 0))
+                    .slice(0, 5)
+                    .map(([id, stats], i) => `**${i + 1}.** <@${id}>: \`${stats.allTime || 0}\``)
                     .join('\n') || '*No message data recorded*';
 
                 // 3. Sort All-Time Actions
@@ -3580,6 +4163,7 @@ if (commandName === 'warn' && options.getSubcommand() === 'clear') {
                     .setColor(0x2b2d31) // Modern Discord dark theme color
                     .addFields(
                         { name: '✉️ Top Weekly Activity', value: topWeekly, inline: false },
+                        { name: '📚 Top All-Time Activity', value: topAllTime, inline: false },
                         { name: '🛡️ Top Moderators (Total Actions)', value: topMods, inline: false },
                         { name: '⚠️ User Watchlist (Most Warnings)', value: topWarns, inline: false }
                     )
@@ -4252,8 +4836,9 @@ client.on('messageCreate', async (message) => {
 
     // 1. Message Tracking
     if (!db.stats) db.stats = {};
-    if (!db.stats[message.author.id]) db.stats[message.author.id] = { count: 0 };
+    if (!db.stats[message.author.id]) db.stats[message.author.id] = { count: 0, allTime: 0 };
     db.stats[message.author.id].count++;
+    db.stats[message.author.id].allTime = (db.stats[message.author.id].allTime || 0) + 1;
     if (db.stats[message.author.id].count % 10 === 0) queueSave();
 
 
