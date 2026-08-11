@@ -1173,6 +1173,66 @@ function formatMsDuration(ms) {
     return minutes > 0 ? `${minutes}m ${remSeconds}s` : `${remSeconds}.${tenths}s`;
 }
 
+// --- VERIFY CHANNEL EMBED ---
+// Posts (or refreshes) a standing embed + Link button in VERIFY_CHANNEL that
+// points members at the /verify website page. A Link-style button just opens
+// the URL directly — no interaction/customId handling needed on the bot's side.
+// The message ID is cached in db.verifyMessageId so restarts edit the existing
+// message in place instead of spamming a new one into the channel every time.
+async function ensureVerifyEmbed(guild) {
+    const channelId = process.env.VERIFY_CHANNEL;
+    if (!channelId) return; // Not configured — nothing to do.
+
+    const channel = guild.channels.cache.get(channelId);
+    if (!channel || !channel.isTextBased()) {
+        console.error(`❌ VERIFY_CHANNEL (${channelId}) not found in this guild or isn't a text channel.`);
+        return;
+    }
+
+    const verifyUrl = process.env.VERIFY_URL;
+    if (!verifyUrl) {
+        console.error('❌ VERIFY_URL is not set — cannot build the verify button link. Set it to e.g. https://yourdomain.com/verify');
+        return;
+    }
+
+    const embed = new EmbedBuilder()
+        .setTitle('✅ Verify to Unlock the Server')
+        .setDescription(
+            `Welcome to **${guild.name}**!\n\n` +
+            `To gain access to the rest of the server, click the button below, log in with Discord, ` +
+            `complete the CAPTCHA, and agree to the rules. You'll be verified in seconds.`
+        )
+        .setColor(0x5865F2)
+        .setFooter({ text: 'This only takes a few seconds.' });
+
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setLabel('✅ Verify Now')
+            .setStyle(ButtonStyle.Link)
+            .setURL(verifyUrl)
+    );
+
+    if (db.verifyMessageId) {
+        const existing = await channel.messages.fetch(db.verifyMessageId).catch(() => null);
+        if (existing) {
+            await existing.edit({ embeds: [embed], components: [row] }).catch((err) => {
+                console.error(`❌ Failed to refresh existing verify embed: ${err.message}`);
+            });
+            return;
+        }
+        // Message we were tracking is gone (deleted, channel purged, etc.) — fall through and repost.
+    }
+
+    const sent = await channel.send({ embeds: [embed], components: [row] }).catch((err) => {
+        console.error(`❌ Failed to post verify embed: ${err.message}`);
+        return null;
+    });
+    if (sent) {
+        db.verifyMessageId = sent.id;
+        await db.save().catch((err) => console.error('❌ Failed to save verifyMessageId:', err.message));
+    }
+}
+
 // --- STARTUP STATS SYNC ---
 // A standalone, non-interactive counterpart to /syncstats that runs automatically
 // once on boot. Deliberately does NOT run the security audit/kick logic from the
@@ -1431,7 +1491,15 @@ client.once('clientReady', async () => {
         }
     }
 
-    // 6. Startup Stats Sync — fire-and-forget so it doesn't block the rest of
+    // 6. Verify Channel Embed — post/refresh the standing verify button.
+    const verifyEmbedGuild = client.guilds.cache.first();
+    if (verifyEmbedGuild) {
+        ensureVerifyEmbed(verifyEmbedGuild).catch((err) => {
+            console.error("❌ ensureVerifyEmbed crashed:", err.message);
+        });
+    }
+
+    // 7. Startup Stats Sync — fire-and-forget so it doesn't block the rest of
     // startup or command handling. It reports its own progress via logAction,
     // so nothing here needs to await or watch it.
     const syncGuild = client.guilds.cache.first();
