@@ -1316,13 +1316,16 @@ async function runStartupStatsSync(guild) {
     let scannedCount = 0;
     let allTimeScannedCount = 0;
     let channelsDone = 0;
+    let pagesFetchedInChannel = 0;
     let skippedChannels = [];
     let lastReportedPercent = 0;
+    let lastHeartbeatAt = Date.now();
+    const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000; // console every 5min — cheap, no Discord API cost
 
     logAction(
         guild,
         '📊 Startup Stats Sync Starting',
-        `Rebuilding staff stats from full channel history across **${totalChannelsToScan}** channels. This can take a while on large servers — progress every ${PROGRESS_PERCENT_STEP}%.`,
+        `Rebuilding staff stats from full channel history across **${totalChannelsToScan}** channels. This can take a while on large servers — progress every ${PROGRESS_PERCENT_STEP}%, with a console heartbeat every 5 minutes so a big channel doesn't look like a hang.`,
         0x5865F2
     );
 
@@ -1330,6 +1333,7 @@ async function runStartupStatsSync(guild) {
         let lastId = null;
         let fetching = true;
         let retriesLeft = MAX_RETRIES_PER_PAGE;
+        pagesFetchedInChannel = 0;
 
         while (fetching) {
             try {
@@ -1339,6 +1343,7 @@ async function runStartupStatsSync(guild) {
                     `Fetch in #${channel.name}`
                 );
                 retriesLeft = MAX_RETRIES_PER_PAGE;
+                pagesFetchedInChannel++;
                 if (messages.size === 0) break;
                 for (const msg of messages.values()) {
                     if (staffIds.includes(msg.author.id)) {
@@ -1361,6 +1366,16 @@ async function runStartupStatsSync(guild) {
                 console.error(`❌ Startup sync: giving up on #${channel.name} after repeated failures/timeouts: ${err.message}`);
                 skippedChannels.push(channel.name);
                 fetching = false;
+            }
+
+            // Heartbeat: a single huge channel (very plausible on a server active since
+            // 2021) can take a long time to page through before channelsDone ever
+            // increments, which is the only thing driving the % progress below. Without
+            // this, that looks indistinguishable from a hang. Console-only (cheap) —
+            // doesn't touch the Discord API or spam the mod log.
+            if (fetching && Date.now() - lastHeartbeatAt >= HEARTBEAT_INTERVAL_MS) {
+                lastHeartbeatAt = Date.now();
+                console.log(`💓 Startup sync heartbeat: still on #${channel.name} (channel ${channelsDone + 1}/${totalChannelsToScan}, ${pagesFetchedInChannel} pages / ~${pagesFetchedInChannel * 100} messages fetched in this channel so far). ${allTimeScannedCount} staff messages found total.`);
             }
         }
 
